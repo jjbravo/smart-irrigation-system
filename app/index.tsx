@@ -1,6 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl, Switch, TextInput, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import React, { useEffect, useState, useRef } from 'react';
+import { Animated, RefreshControl, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View, LayoutAnimation, Platform, UIManager } from 'react-native';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+    UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 type SystemData = {
     rtc: string;
@@ -66,7 +70,7 @@ const RelayCard = ({ id, title, state, schedOn, schedOff, onToggle, onSaveSchedu
                         <View style={styles.editRow}>
                             <View style={styles.inputGroup}>
                                 <Text style={styles.scheduleLabel}>Inicio (HH:MM)</Text>
-                                <TextInput 
+                                <TextInput
                                     style={styles.timeInput}
                                     value={onTime}
                                     onChangeText={setOnTime}
@@ -77,7 +81,7 @@ const RelayCard = ({ id, title, state, schedOn, schedOff, onToggle, onSaveSchedu
                             </View>
                             <View style={styles.inputGroup}>
                                 <Text style={styles.scheduleLabel}>Apagado (HH:MM)</Text>
-                                <TextInput 
+                                <TextInput
                                     style={styles.timeInput}
                                     value={offTime}
                                     onChangeText={setOffTime}
@@ -124,10 +128,92 @@ const RelayCard = ({ id, title, state, schedOn, schedOff, onToggle, onSaveSchedu
     );
 }
 
+const RTCConfig = ({ onSave }: { onSave: (h: number, m: number, s: number) => Promise<boolean> }) => {
+    const d = new Date();
+    const [h, setH] = useState(d.getHours().toString().padStart(2, '0'));
+    const [m, setM] = useState(d.getMinutes().toString().padStart(2, '0'));
+    const [s, setS] = useState(d.getSeconds().toString().padStart(2, '0'));
+    const [saving, setSaving] = useState(false);
+
+    const handleSyncPhone = () => {
+        const now = new Date();
+        setH(now.getHours().toString().padStart(2, '0'));
+        setM(now.getMinutes().toString().padStart(2, '0'));
+        setS(now.getSeconds().toString().padStart(2, '0'));
+    };
+
+    const handleSave = async () => {
+        setSaving(true);
+        await onSave(parseInt(h) || 0, parseInt(m) || 0, parseInt(s) || 0);
+        setSaving(false);
+    };
+
+    return (
+        <View style={[styles.card, { borderColor: '#38BDF8', borderWidth: 1 }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
+                <Ionicons name="time" size={20} color="#38BDF8" />
+                <Text style={[styles.cardTitle, { marginLeft: 8 }]}>Sincronizar Reloj Interno</Text>
+            </View>
+            <View style={styles.editRow}>
+                <View style={styles.inputGroup}>
+                    <Text style={styles.scheduleLabel}>Hora</Text>
+                    <TextInput style={styles.timeInput} value={h} onChangeText={setH} keyboardType="numeric" maxLength={2} />
+                </View>
+                <View style={styles.inputGroup}>
+                    <Text style={styles.scheduleLabel}>Min</Text>
+                    <TextInput style={styles.timeInput} value={m} onChangeText={setM} keyboardType="numeric" maxLength={2} />
+                </View>
+                <View style={styles.inputGroup}>
+                    <Text style={styles.scheduleLabel}>Seg</Text>
+                    <TextInput style={styles.timeInput} value={s} onChangeText={setS} keyboardType="numeric" maxLength={2} />
+                </View>
+            </View>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 }}>
+                <TouchableOpacity onPress={handleSyncPhone} style={styles.cancelBtn}>
+                    <Text style={styles.cancelBtnText}>Hora Actual</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={handleSave} style={styles.saveBtn} disabled={saving}>
+                    <Text style={styles.saveBtnText}>{saving ? 'Enviando...' : 'Ajustar'}</Text>
+                </TouchableOpacity>
+            </View>
+        </View>
+    );
+};
+
 export default function App() {
     const [data, setData] = useState<SystemData | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [successMsg, setSuccessMsg] = useState<string | null>(null);
+    const fadeAnim = useRef(new Animated.Value(0)).current;
     const [refreshing, setRefreshing] = useState(false);
+    const [showRtcConfig, setShowRtcConfig] = useState(false);
+
+    const toggleRtcConfig = () => {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setShowRtcConfig(prev => !prev);
+    };
+
+    const triggerSuccessToast = (msg: string) => {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setSuccessMsg(msg);
+        fadeAnim.setValue(0);
+        Animated.timing(fadeAnim, {
+            toValue: 1,
+            duration: 300,
+            useNativeDriver: true,
+        }).start(() => {
+            setTimeout(() => {
+                Animated.timing(fadeAnim, {
+                    toValue: 0,
+                    duration: 500,
+                    useNativeDriver: true,
+                }).start(() => {
+                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                    setSuccessMsg(null);
+                });
+            }, 4500);
+        });
+    };
 
     const fetchData = async () => {
         try {
@@ -159,7 +245,7 @@ export default function App() {
 
     const handleToggle = async (id: 'r1' | 'r2', currentState: number) => {
         const newVal = currentState === 1 ? 0 : 1;
-        
+
         // Optimistic UI update
         if (data) {
             const newData = { ...data, [id]: newVal };
@@ -174,7 +260,7 @@ export default function App() {
             });
 
             if (!response.ok) throw new Error('Error al enviar comando');
-        } catch(err) {
+        } catch (err) {
             console.log('Error toggling manual state', err);
             // Revert state on failure
             if (data) {
@@ -208,7 +294,40 @@ export default function App() {
             await fetchData();
             return true;
         } catch (err: any) {
+            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
             setError(err.message || 'Error desconocido');
+            return false;
+        }
+    };
+
+    const handleSetRtc = async (h: number, m: number, s: number) => {
+        try {
+            if (error) {
+                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                setError(null);
+            }
+            setSuccessMsg(null);
+            const response = await fetch('http://192.168.4.1/setrtc', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ h, m, s })
+            });
+
+            if (!response.ok) throw new Error('Error al ajustar el reloj del sistema');
+
+            const resData = await response.json().catch(() => null);
+            if (resData && resData.status === 'success') {
+                triggerSuccessToast(`Reloj sincronizado exitosamente a las ${resData.time}`);
+            } else {
+                triggerSuccessToast('Reloj sincronizado exitosamente.');
+            }
+
+            await fetchData();
+            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+            setShowRtcConfig(false);
+            return true;
+        } catch (err: any) {
+            setError(err.message || 'Error desconocido enviando RTC');
             return false;
         }
     };
@@ -220,7 +339,7 @@ export default function App() {
 
 
     return (
-        <ScrollView 
+        <ScrollView
             style={styles.container}
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#fff" />}
         >
@@ -230,6 +349,9 @@ export default function App() {
                         <Ionicons name="water-outline" size={40} color="#38BDF8" />
                         <TouchableOpacity onPress={handleRefresh} style={{ marginLeft: 16, padding: 8, backgroundColor: '#1E293B', borderRadius: 12 }}>
                             <Ionicons name="refresh" size={24} color="#38BDF8" />
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={toggleRtcConfig} style={{ marginLeft: 8, padding: 8, backgroundColor: '#1E293B', borderRadius: 12 }}>
+                            <Ionicons name={showRtcConfig ? "close" : "settings"} size={24} color={showRtcConfig ? "#F87171" : "#94A3B8"} />
                         </TouchableOpacity>
                     </View>
                     <View style={styles.rtcContainer}>
@@ -242,30 +364,41 @@ export default function App() {
             </View>
 
             {error && (
-               <View style={styles.errorBox}>
-                   <Ionicons name="warning" size={20} color="#F87171" />
-                   <Text style={styles.errorText}>{error}</Text>
-               </View> 
+                <View style={styles.errorBox}>
+                    <Ionicons name="warning" size={20} color="#F87171" />
+                    <Text style={styles.errorText}>{error}</Text>
+                </View>
+            )}
+
+            {successMsg && (
+                <Animated.View style={[styles.successBox, { opacity: fadeAnim }]}>
+                    <Ionicons name="checkmark-circle" size={20} color="#34D399" />
+                    <Text style={styles.successText}>{successMsg}</Text>
+                </Animated.View>
             )}
 
             <View style={styles.content}>
+                {showRtcConfig && (
+                    <RTCConfig onSave={handleSetRtc} />
+                )}
+
                 {data ? (
                     <>
-                        <RelayCard 
+                        <RelayCard
                             id="r1"
-                            title="Circuito 1 (R1)" 
-                            state={data.r1} 
-                            schedOn={data.sched.r1.on} 
-                            schedOff={data.sched.r1.off} 
+                            title="Circuito 1 (R1)"
+                            state={data.r1}
+                            schedOn={data.sched.r1.on}
+                            schedOff={data.sched.r1.off}
                             onToggle={handleToggle}
                             onSaveSchedule={handleSchedule}
                         />
-                        <RelayCard 
+                        <RelayCard
                             id="r2"
-                            title="Circuito 2 (R2)" 
-                            state={data.r2} 
-                            schedOn={data.sched.r2.on} 
-                            schedOff={data.sched.r2.off} 
+                            title="Circuito 2 (R2)"
+                            state={data.r2}
+                            schedOn={data.sched.r2.on}
+                            schedOff={data.sched.r2.off}
                             onToggle={handleToggle}
                             onSaveSchedule={handleSchedule}
                         />
@@ -335,6 +468,25 @@ const styles = StyleSheet.create({
     },
     errorText: {
         color: '#FCA5A5',
+        marginLeft: 12,
+        flex: 1,
+        fontSize: 13,
+        lineHeight: 18,
+    },
+    successBox: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#022c22',
+        padding: 16,
+        marginHorizontal: 24,
+        marginTop: 15,
+        marginBottom: 24,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#064e3b',
+    },
+    successText: {
+        color: '#6EE7B7',
         marginLeft: 12,
         flex: 1,
         fontSize: 13,
