@@ -7,10 +7,11 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 }
 
 type SystemData = {
-    rtc: string;
-    r1: number;
-    r2: number;
-    sched: {
+    hora: string;
+    v1: number;
+    v2: number;
+    manual: boolean;
+    prog: {
         r1: { on: string; off: string };
         r2: { on: string; off: string };
     };
@@ -215,21 +216,31 @@ export default function App() {
         });
     };
 
+    const fetchWithTimeout = (url: string, options: RequestInit = {}, timeoutMs = 6000): Promise<Response> => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timer));
+    };
+
     const fetchData = async () => {
         try {
             setError(null);
-            const response = await fetch('http://192.168.4.1/status');
+            const response = await fetchWithTimeout('http://192.168.4.1/status');
             if (!response.ok) throw new Error('Network response was not ok');
             const json = await response.json();
             setData(json);
-        } catch (err) {
-            setError('Error de conexión o no conectado al NodeMCU. Mostrando datos de simulación.');
+        } catch (err: any) {
+            const msg = err?.name === 'AbortError'
+                ? 'Tiempo de espera agotado. El NodeMCU no responde (timeout 6s).'
+                : 'Error de conexión. Verifica que estés conectado a la red WiFi del NodeMCU.';
+            setError(msg);
             // Mock data for display purposes
             setData({
-                rtc: new Date().toLocaleTimeString('en-US', { hour12: false }),
-                r1: 1,
-                r2: 0,
-                sched: {
+                hora: new Date().toLocaleTimeString('en-US', { hour12: false }),
+                v1: 1,
+                v2: 0,
+                manual: false,
+                prog: {
                     r1: { on: "21:25", off: "21:26" },
                     r2: { on: "21:26", off: "21:27" }
                 }
@@ -245,15 +256,16 @@ export default function App() {
 
     const handleToggle = async (id: 'r1' | 'r2', currentState: number) => {
         const newVal = currentState === 1 ? 0 : 1;
+        const dataKey = id === 'r1' ? 'v1' : 'v2';
 
         // Optimistic UI update
         if (data) {
-            const newData = { ...data, [id]: newVal };
+            const newData = { ...data, [dataKey]: newVal } as SystemData;
             setData(newData);
         }
 
         try {
-            const response = await fetch('http://192.168.4.1/manual', {
+            const response = await fetchWithTimeout('http://192.168.4.1/manual', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ id, val: newVal })
@@ -264,7 +276,7 @@ export default function App() {
             console.log('Error toggling manual state', err);
             // Revert state on failure
             if (data) {
-                const revertData = { ...data, [id]: currentState };
+                const revertData = { ...data, [dataKey]: currentState } as SystemData;
                 setData(revertData);
             }
         }
@@ -277,7 +289,7 @@ export default function App() {
                 throw new Error('La hora de apagado debe ser mayor a la hora de encendido');
             }
 
-            const response = await fetch('http://192.168.4.1/schedule', {
+            const response = await fetchWithTimeout('http://192.168.4.1/schedule', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ id, on: onTime, off: offTime })
@@ -307,7 +319,7 @@ export default function App() {
                 setError(null);
             }
             setSuccessMsg(null);
-            const response = await fetch('http://192.168.4.1/setrtc', {
+            const response = await fetchWithTimeout('http://192.168.4.1/setrtc', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ h, m, s })
@@ -356,7 +368,12 @@ export default function App() {
                     </View>
                     <View style={styles.rtcContainer}>
                         <Text style={styles.rtcLabel}>HORA LOCAL</Text>
-                        <Text style={styles.rtcValue}>{data?.rtc || '--:--:--'}</Text>
+                        <Text style={styles.rtcValue}>{data?.hora || '--:--:--'}</Text>
+                        {data?.manual && (
+                            <Text style={{color: '#34D399', fontSize: 10, fontWeight: 'bold', marginTop: 4, letterSpacing: 0.5}}>
+                                MODO MANUAL ACTIVO
+                            </Text>
+                        )}
                     </View>
                 </View>
                 <Text style={styles.title}>Control de Riego</Text>
@@ -387,18 +404,18 @@ export default function App() {
                         <RelayCard
                             id="r1"
                             title="Circuito 1 (R1)"
-                            state={data.r1}
-                            schedOn={data.sched.r1.on}
-                            schedOff={data.sched.r1.off}
+                            state={data.v1}
+                            schedOn={data.prog.r1.on}
+                            schedOff={data.prog.r1.off}
                             onToggle={handleToggle}
                             onSaveSchedule={handleSchedule}
                         />
                         <RelayCard
                             id="r2"
                             title="Circuito 2 (R2)"
-                            state={data.r2}
-                            schedOn={data.sched.r2.on}
-                            schedOff={data.sched.r2.off}
+                            state={data.v2}
+                            schedOn={data.prog.r2.on}
+                            schedOff={data.prog.r2.off}
                             onToggle={handleToggle}
                             onSaveSchedule={handleSchedule}
                         />
