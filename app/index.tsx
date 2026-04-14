@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useState, useRef } from 'react';
-import { Animated, RefreshControl, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View, LayoutAnimation, Platform, UIManager } from 'react-native';
+import { Animated, RefreshControl, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View, LayoutAnimation, Platform, UIManager, KeyboardAvoidingView, SafeAreaView } from 'react-native';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
     UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -271,7 +271,10 @@ export default function App() {
                 body: JSON.stringify({ id, val: newVal })
             });
 
-            if (!response.ok) throw new Error('Error al enviar comando');
+            const resData = await response.json().catch(() => null);
+            if (!response.ok || (resData && resData.statusCode !== 200)) {
+                throw new Error('Error al enviar comando');
+            }
         } catch (err) {
             console.log('Error toggling manual state', err);
             // Revert state on failure
@@ -295,8 +298,9 @@ export default function App() {
                 body: JSON.stringify({ id, on: onTime, off: offTime })
             });
 
-            if (!response.ok) {
-                const resData = await response.json().catch(() => null);
+            const resData = await response.json().catch(() => null);
+            
+            if (!response.ok || (resData && resData.statusCode !== 200)) {
                 if (resData && resData.statusCode === 1002) {
                     throw new Error(resData.message);
                 }
@@ -325,11 +329,13 @@ export default function App() {
                 body: JSON.stringify({ h, m, s })
             });
 
-            if (!response.ok) throw new Error('Error al ajustar el reloj del sistema');
-
             const resData = await response.json().catch(() => null);
-            if (resData && resData.status === 'success') {
-                triggerSuccessToast(`Reloj sincronizado exitosamente a las ${resData.time}`);
+            if (!response.ok || (resData && resData.statusCode !== 200)) {
+                throw new Error('Error al ajustar el reloj del sistema');
+            }
+
+            if (resData && (resData.message || resData.status === 'success')) {
+                triggerSuccessToast(`Reloj sincronizado exitosamente.`);
             } else {
                 triggerSuccessToast('Reloj sincronizado exitosamente.');
             }
@@ -351,80 +357,90 @@ export default function App() {
 
 
     return (
-        <ScrollView
-            style={styles.container}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#fff" />}
-        >
-            <View style={styles.header}>
-                <View style={styles.headerTop}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <Ionicons name="water-outline" size={40} color="#38BDF8" />
-                        <TouchableOpacity onPress={handleRefresh} style={{ marginLeft: 16, padding: 8, backgroundColor: '#1E293B', borderRadius: 12 }}>
-                            <Ionicons name="refresh" size={24} color="#38BDF8" />
-                        </TouchableOpacity>
-                        <TouchableOpacity onPress={toggleRtcConfig} style={{ marginLeft: 8, padding: 8, backgroundColor: '#1E293B', borderRadius: 12 }}>
-                            <Ionicons name={showRtcConfig ? "close" : "settings"} size={24} color={showRtcConfig ? "#F87171" : "#94A3B8"} />
-                        </TouchableOpacity>
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#0F172A' }}>
+            <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                style={{ flex: 1 }}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+            >
+                <ScrollView
+                    style={styles.container}
+                    contentContainerStyle={{ flexGrow: 1, paddingBottom: 40 }}
+                    refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#fff" />}
+                    keyboardShouldPersistTaps="handled"
+                >
+                    <View style={styles.header}>
+                        <View style={styles.headerTop}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                <Ionicons name="water-outline" size={40} color="#38BDF8" />
+                                <TouchableOpacity onPress={handleRefresh} style={{ marginLeft: 16, padding: 8, backgroundColor: '#1E293B', borderRadius: 12 }}>
+                                    <Ionicons name="refresh" size={24} color="#38BDF8" />
+                                </TouchableOpacity>
+                                <TouchableOpacity onPress={toggleRtcConfig} style={{ marginLeft: 8, padding: 8, backgroundColor: '#1E293B', borderRadius: 12 }}>
+                                    <Ionicons name={showRtcConfig ? "close" : "settings"} size={24} color={showRtcConfig ? "#F87171" : "#94A3B8"} />
+                                </TouchableOpacity>
+                            </View>
+                            <View style={styles.rtcContainer}>
+                                <Text style={styles.rtcLabel}>HORA LOCAL</Text>
+                                <Text style={styles.rtcValue}>{data?.hora || '--:--:--'}</Text>
+                                {data?.manual && (
+                                    <Text style={{ color: '#34D399', fontSize: 10, fontWeight: 'bold', marginTop: 4, letterSpacing: 0.5 }}>
+                                        SISTEMA ACTIVO (VÍA BOTÓN/APP)
+                                    </Text>
+                                )}
+                            </View>
+                        </View>
+                        <Text style={styles.title}>Control de Riego</Text>
+                        <Text style={styles.subtitle}>Supervisa y administra los horarios de tu sistema de riego automático.</Text>
                     </View>
-                    <View style={styles.rtcContainer}>
-                        <Text style={styles.rtcLabel}>HORA LOCAL</Text>
-                        <Text style={styles.rtcValue}>{data?.hora || '--:--:--'}</Text>
-                        {data?.manual && (
-                            <Text style={{color: '#34D399', fontSize: 10, fontWeight: 'bold', marginTop: 4, letterSpacing: 0.5}}>
-                                MODO MANUAL ACTIVO
-                            </Text>
+
+                    {error && (
+                        <View style={styles.errorBox}>
+                            <Ionicons name="warning" size={20} color="#F87171" />
+                            <Text style={styles.errorText}>{error}</Text>
+                        </View>
+                    )}
+
+                    {successMsg && (
+                        <Animated.View style={[styles.successBox, { opacity: fadeAnim }]}>
+                            <Ionicons name="checkmark-circle" size={20} color="#34D399" />
+                            <Text style={styles.successText}>{successMsg}</Text>
+                        </Animated.View>
+                    )}
+
+                    <View style={styles.content}>
+                        {showRtcConfig && (
+                            <RTCConfig onSave={handleSetRtc} />
+                        )}
+
+                        {data ? (
+                            <>
+                                <RelayCard
+                                    id="r1"
+                                    title="Circuito 1 (R1)"
+                                    state={data.v1}
+                                    schedOn={data.prog.r1.on}
+                                    schedOff={data.prog.r1.off}
+                                    onToggle={handleToggle}
+                                    onSaveSchedule={handleSchedule}
+                                />
+                                <RelayCard
+                                    id="r2"
+                                    title="Circuito 2 (R2)"
+                                    state={data.v2}
+                                    schedOn={data.prog.r2.on}
+                                    schedOff={data.prog.r2.off}
+                                    onToggle={handleToggle}
+                                    onSaveSchedule={handleSchedule}
+                                />
+                            </>
+                        ) : (
+                            <Text style={styles.loadingText}>Cargando estado...</Text>
                         )}
                     </View>
-                </View>
-                <Text style={styles.title}>Control de Riego</Text>
-                <Text style={styles.subtitle}>Supervisa y administra los horarios de tu sistema de riego automático.</Text>
-            </View>
-
-            {error && (
-                <View style={styles.errorBox}>
-                    <Ionicons name="warning" size={20} color="#F87171" />
-                    <Text style={styles.errorText}>{error}</Text>
-                </View>
-            )}
-
-            {successMsg && (
-                <Animated.View style={[styles.successBox, { opacity: fadeAnim }]}>
-                    <Ionicons name="checkmark-circle" size={20} color="#34D399" />
-                    <Text style={styles.successText}>{successMsg}</Text>
-                </Animated.View>
-            )}
-
-            <View style={styles.content}>
-                {showRtcConfig && (
-                    <RTCConfig onSave={handleSetRtc} />
-                )}
-
-                {data ? (
-                    <>
-                        <RelayCard
-                            id="r1"
-                            title="Circuito 1 (R1)"
-                            state={data.v1}
-                            schedOn={data.prog.r1.on}
-                            schedOff={data.prog.r1.off}
-                            onToggle={handleToggle}
-                            onSaveSchedule={handleSchedule}
-                        />
-                        <RelayCard
-                            id="r2"
-                            title="Circuito 2 (R2)"
-                            state={data.v2}
-                            schedOn={data.prog.r2.on}
-                            schedOff={data.prog.r2.off}
-                            onToggle={handleToggle}
-                            onSaveSchedule={handleSchedule}
-                        />
-                    </>
-                ) : (
-                    <Text style={styles.loadingText}>Cargando estado...</Text>
-                )}
-            </View>
-        </ScrollView>
+                </ScrollView>
+            </KeyboardAvoidingView>
+        </SafeAreaView>
     );
 }
 
