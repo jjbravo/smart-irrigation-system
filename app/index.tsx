@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl, Switch } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, Switch, TextInput, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 type SystemData = {
@@ -11,6 +11,118 @@ type SystemData = {
         r2: { on: string; off: string };
     };
 };
+
+type RelayCardProps = {
+    id: 'r1' | 'r2';
+    title: string;
+    state: number;
+    schedOn: string;
+    schedOff: string;
+    onToggle: (id: 'r1' | 'r2', currentState: number) => Promise<void>;
+    onSaveSchedule: (id: 'r1' | 'r2', onTime: string, offTime: string) => Promise<boolean>;
+};
+
+const RelayCard = ({ id, title, state, schedOn, schedOff, onToggle, onSaveSchedule }: RelayCardProps) => {
+    const isOn = state === 1;
+    const [isEditing, setIsEditing] = useState(false);
+    const [onTime, setOnTime] = useState(schedOn);
+    const [offTime, setOffTime] = useState(schedOff);
+    const [saving, setSaving] = useState(false);
+
+    useEffect(() => {
+        if (!isEditing) {
+            setOnTime(schedOn);
+            setOffTime(schedOff);
+        }
+    }, [schedOn, schedOff, isEditing]);
+
+    const saveSchedule = async () => {
+        setSaving(true);
+        const success = await onSaveSchedule(id, onTime, offTime);
+        setSaving(false);
+        if (success) setIsEditing(false);
+    };
+
+    return (
+        <View style={styles.card}>
+            <View style={styles.cardHeader}>
+                <View>
+                    <Text style={styles.cardTitle}>{title}</Text>
+                    <View style={[styles.statusBadge, isOn ? styles.statusOn : styles.statusOff, { marginTop: 8, alignSelf: 'flex-start' }]}>
+                        <Ionicons name={isOn ? "power" : "power-outline"} size={12} color="#FFF" />
+                        <Text style={styles.statusText}>{isOn ? "ENCENDIDO" : "APAGADO"}</Text>
+                    </View>
+                </View>
+                <Switch
+                    value={isOn}
+                    onValueChange={() => onToggle(id, state)}
+                    trackColor={{ false: '#334155', true: '#059669' }}
+                    thumbColor={'#F8FAFC'}
+                />
+            </View>
+            <View style={styles.scheduleContainer}>
+                {isEditing ? (
+                    <View style={styles.editModeContainer}>
+                        <View style={styles.editRow}>
+                            <View style={styles.inputGroup}>
+                                <Text style={styles.scheduleLabel}>Inicio (HH:MM)</Text>
+                                <TextInput 
+                                    style={styles.timeInput}
+                                    value={onTime}
+                                    onChangeText={setOnTime}
+                                    maxLength={5}
+                                    placeholder="21:00"
+                                    placeholderTextColor="#475569"
+                                />
+                            </View>
+                            <View style={styles.inputGroup}>
+                                <Text style={styles.scheduleLabel}>Apagado (HH:MM)</Text>
+                                <TextInput 
+                                    style={styles.timeInput}
+                                    value={offTime}
+                                    onChangeText={setOffTime}
+                                    maxLength={5}
+                                    placeholder="21:15"
+                                    placeholderTextColor="#475569"
+                                />
+                            </View>
+                        </View>
+                        <View style={styles.editActions}>
+                            <TouchableOpacity onPress={() => setIsEditing(false)} style={styles.cancelBtn}>
+                                <Text style={styles.cancelBtnText}>Cancelar</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={saveSchedule} style={styles.saveBtn} disabled={saving}>
+                                <Text style={styles.saveBtnText}>{saving ? 'Guardando...' : 'Guardar'}</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                ) : (
+                    <View style={styles.scheduleDisplay}>
+                        <View style={styles.scheduleItemsWrap}>
+                            <View style={styles.scheduleItem}>
+                                <Ionicons name="time-outline" size={18} color="#94A3B8" />
+                                <View style={styles.scheduleTexts}>
+                                    <Text style={styles.scheduleLabel}>Próximo Inicio</Text>
+                                    <Text style={styles.scheduleValue}>{schedOn}</Text>
+                                </View>
+                            </View>
+                            <View style={styles.scheduleItem}>
+                                <Ionicons name="timer-outline" size={18} color="#94A3B8" />
+                                <View style={styles.scheduleTexts}>
+                                    <Text style={styles.scheduleLabel}>Próximo Apagado</Text>
+                                    <Text style={styles.scheduleValue}>{schedOff}</Text>
+                                </View>
+                            </View>
+                        </View>
+                        <TouchableOpacity style={styles.editBtn} onPress={() => setIsEditing(true)}>
+                            <Ionicons name="pencil" size={20} color="#38BDF8" />
+                        </TouchableOpacity>
+                    </View>
+                )}
+            </View>
+        </View>
+    );
+}
 
 export default function App() {
     const [data, setData] = useState<SystemData | null>(null);
@@ -72,50 +184,40 @@ export default function App() {
         }
     };
 
+    const handleSchedule = async (id: 'r1' | 'r2', onTime: string, offTime: string) => {
+        try {
+            setError(null);
+            if (onTime >= offTime) {
+                throw new Error('La hora de apagado debe ser mayor a la hora de encendido');
+            }
+
+            const response = await fetch('http://192.168.4.1/schedule', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id, on: onTime, off: offTime })
+            });
+
+            if (!response.ok) {
+                const resData = await response.json().catch(() => null);
+                if (resData && resData.statusCode === 1002) {
+                    throw new Error(resData.message);
+                }
+                throw new Error('Error al programar horario');
+            }
+
+            await fetchData();
+            return true;
+        } catch (err: any) {
+            setError(err.message || 'Error desconocido');
+            return false;
+        }
+    };
+
     useEffect(() => {
         fetchData();
-        const interval = setInterval(fetchData, 5000);
-        return () => clearInterval(interval);
     }, []);
 
-    const RelayCard = ({ id, title, state, schedOn, schedOff }: { id: 'r1' | 'r2', title: string, state: number, schedOn: string, schedOff: string }) => {
-        const isOn = state === 1;
-        return (
-            <View style={styles.card}>
-                <View style={styles.cardHeader}>
-                    <View>
-                        <Text style={styles.cardTitle}>{title}</Text>
-                        <View style={[styles.statusBadge, isOn ? styles.statusOn : styles.statusOff, { marginTop: 8, alignSelf: 'flex-start' }]}>
-                            <Ionicons name={isOn ? "power" : "power-outline"} size={12} color="#FFF" />
-                            <Text style={styles.statusText}>{isOn ? "ENCENDIDO" : "APAGADO"}</Text>
-                        </View>
-                    </View>
-                    <Switch
-                        value={isOn}
-                        onValueChange={() => handleToggle(id, state)}
-                        trackColor={{ false: '#334155', true: '#059669' }}
-                        thumbColor={'#F8FAFC'}
-                    />
-                </View>
-                <View style={styles.scheduleContainer}>
-                    <View style={styles.scheduleItem}>
-                        <Ionicons name="time-outline" size={18} color="#94A3B8" />
-                        <View style={styles.scheduleTexts}>
-                            <Text style={styles.scheduleLabel}>Próximo Inicio</Text>
-                            <Text style={styles.scheduleValue}>{schedOn}</Text>
-                        </View>
-                    </View>
-                    <View style={styles.scheduleItem}>
-                        <Ionicons name="timer-outline" size={18} color="#94A3B8" />
-                        <View style={styles.scheduleTexts}>
-                            <Text style={styles.scheduleLabel}>Próximo Apagado</Text>
-                            <Text style={styles.scheduleValue}>{schedOff}</Text>
-                        </View>
-                    </View>
-                </View>
-            </View>
-        );
-    }
+
 
     return (
         <ScrollView 
@@ -124,7 +226,12 @@ export default function App() {
         >
             <View style={styles.header}>
                 <View style={styles.headerTop}>
-                    <Ionicons name="water-outline" size={40} color="#38BDF8" />
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Ionicons name="water-outline" size={40} color="#38BDF8" />
+                        <TouchableOpacity onPress={handleRefresh} style={{ marginLeft: 16, padding: 8, backgroundColor: '#1E293B', borderRadius: 12 }}>
+                            <Ionicons name="refresh" size={24} color="#38BDF8" />
+                        </TouchableOpacity>
+                    </View>
                     <View style={styles.rtcContainer}>
                         <Text style={styles.rtcLabel}>HORA LOCAL</Text>
                         <Text style={styles.rtcValue}>{data?.rtc || '--:--:--'}</Text>
@@ -150,6 +257,8 @@ export default function App() {
                             state={data.r1} 
                             schedOn={data.sched.r1.on} 
                             schedOff={data.sched.r1.off} 
+                            onToggle={handleToggle}
+                            onSaveSchedule={handleSchedule}
                         />
                         <RelayCard 
                             id="r2"
@@ -157,6 +266,8 @@ export default function App() {
                             state={data.r2} 
                             schedOn={data.sched.r2.on} 
                             schedOff={data.sched.r2.off} 
+                            onToggle={handleToggle}
+                            onSaveSchedule={handleSchedule}
                         />
                     </>
                 ) : (
@@ -285,8 +396,17 @@ const styles = StyleSheet.create({
         backgroundColor: '#020617',
         borderRadius: 16,
         padding: 16,
+    },
+    scheduleDisplay: {
         flexDirection: 'row',
         justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    scheduleItemsWrap: {
+        flex: 1,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        paddingRight: 16,
     },
     scheduleItem: {
         flexDirection: 'row',
@@ -306,5 +426,61 @@ const styles = StyleSheet.create({
         color: '#E2E8F0',
         fontWeight: 'bold',
         fontVariant: ['tabular-nums'],
+    },
+    editBtn: {
+        padding: 8,
+        backgroundColor: '#0F172A',
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: '#1E293B',
+    },
+    editModeContainer: {
+        width: '100%',
+    },
+    editRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        marginBottom: 16,
+    },
+    inputGroup: {
+        flex: 1,
+        marginRight: 8,
+    },
+    timeInput: {
+        backgroundColor: '#0F172A',
+        color: '#F8FAFC',
+        fontSize: 16,
+        fontWeight: 'bold',
+        padding: 12,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: '#1E293B',
+        textAlign: 'center',
+        marginTop: 6,
+    },
+    editActions: {
+        flexDirection: 'row',
+        justifyContent: 'flex-end',
+        marginTop: 4,
+    },
+    cancelBtn: {
+        paddingVertical: 8,
+        paddingHorizontal: 16,
+        borderRadius: 8,
+        marginRight: 8,
+    },
+    cancelBtnText: {
+        color: '#94A3B8',
+        fontWeight: '600',
+    },
+    saveBtn: {
+        backgroundColor: '#38BDF8',
+        paddingVertical: 8,
+        paddingHorizontal: 20,
+        borderRadius: 8,
+    },
+    saveBtnText: {
+        color: '#020617',
+        fontWeight: 'bold',
     },
 });
