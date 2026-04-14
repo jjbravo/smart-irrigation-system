@@ -6,46 +6,79 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
     UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
+type ScheduleEntry = {
+    id: 'r1' | 'r2';
+    on: string;
+    off: string;
+};
+
 type SystemData = {
     hora: string;
     v1: number;
     v2: number;
     manual: boolean;
-    prog: {
-        r1: { on: string; off: string };
-        r2: { on: string; off: string };
-    };
+    prog: ScheduleEntry[];
 };
 
 type RelayCardProps = {
     id: 'r1' | 'r2';
     title: string;
     state: number;
-    schedOn: string;
-    schedOff: string;
+    schedules: ScheduleEntry[];
     onToggle: (id: 'r1' | 'r2', currentState: number) => Promise<void>;
-    onSaveSchedule: (id: 'r1' | 'r2', onTime: string, offTime: string) => Promise<boolean>;
+    onSaveAllSchedules: (updatedSchedules: ScheduleEntry[]) => Promise<boolean>;
 };
 
-const RelayCard = ({ id, title, state, schedOn, schedOff, onToggle, onSaveSchedule }: RelayCardProps) => {
+const RelayCard = ({ id, title, state, schedules, onToggle, onSaveAllSchedules }: RelayCardProps) => {
     const isOn = state === 1;
-    const [isEditing, setIsEditing] = useState(false);
-    const [onTime, setOnTime] = useState(schedOn);
-    const [offTime, setOffTime] = useState(schedOff);
+    const [isAdding, setIsAdding] = useState(false);
+    const [editingIdx, setEditingIdx] = useState<number | null>(null);
+    const [onTime, setOnTime] = useState('06:00');
+    const [offTime, setOffTime] = useState('06:10');
     const [saving, setSaving] = useState(false);
 
-    useEffect(() => {
-        if (!isEditing) {
-            setOnTime(schedOn);
-            setOffTime(schedOff);
+    const handleSave = async () => {
+        if (onTime >= offTime) {
+            alert("La hora de apagado debe ser mayor a la de inicio");
+            return;
         }
-    }, [schedOn, schedOff, isEditing]);
-
-    const saveSchedule = async () => {
         setSaving(true);
-        const success = await onSaveSchedule(id, onTime, offTime);
+        let newList;
+        if (editingIdx !== null) {
+            newList = [...schedules];
+            newList[editingIdx] = { id, on: onTime, off: offTime };
+        } else {
+            newList = [...schedules, { id, on: onTime, off: offTime }];
+        }
+        
+        const success = await onSaveAllSchedules(newList);
         setSaving(false);
-        if (success) setIsEditing(false);
+        if (success) {
+            setIsAdding(false);
+            setEditingIdx(null);
+            setOnTime('06:00');
+            setOffTime('06:10');
+        }
+    };
+
+    const startEdit = (index: number) => {
+        const item = schedules[index];
+        setOnTime(item.on);
+        setOffTime(item.off);
+        setEditingIdx(index);
+        setIsAdding(true);
+    };
+
+    const startAdd = () => {
+        setOnTime('06:00');
+        setOffTime('06:10');
+        setEditingIdx(null);
+        setIsAdding(!isAdding);
+    };
+
+    const handleDelete = async (index: number) => {
+        const newList = schedules.filter((_, i) => i !== index);
+        await onSaveAllSchedules(newList);
     };
 
     return (
@@ -65,65 +98,58 @@ const RelayCard = ({ id, title, state, schedOn, schedOff, onToggle, onSaveSchedu
                     thumbColor={'#F8FAFC'}
                 />
             </View>
-            <View style={styles.scheduleContainer}>
-                {isEditing ? (
-                    <View style={styles.editModeContainer}>
+
+            <View style={styles.scheduleSection}>
+                <View style={styles.sectionHeader}>
+                    <Text style={styles.sectionTitle}>Eventos Programados</Text>
+                    <TouchableOpacity onPress={startAdd} style={styles.addIconBtn}>
+                        <Ionicons name={isAdding && editingIdx === null ? "close-circle" : "add-circle"} size={28} color={isAdding && editingIdx === null ? "#F87171" : "#38BDF8"} />
+                    </TouchableOpacity>
+                </View>
+
+                {isAdding && (
+                    <View style={styles.addForm}>
+                        <Text style={[styles.scheduleLabel, { marginBottom: 8, color: '#38BDF8' }]}>
+                            {editingIdx !== null ? 'Editando Evento' : 'Nuevo Evento'}
+                        </Text>
                         <View style={styles.editRow}>
                             <View style={styles.inputGroup}>
-                                <Text style={styles.scheduleLabel}>Inicio (HH:MM)</Text>
-                                <TextInput
-                                    style={styles.timeInput}
-                                    value={onTime}
-                                    onChangeText={setOnTime}
-                                    maxLength={5}
-                                    placeholder="21:00"
-                                    placeholderTextColor="#475569"
-                                />
+                                <Text style={styles.scheduleLabel}>On</Text>
+                                <TextInput style={styles.timeInput} value={onTime} onChangeText={setOnTime} maxLength={5} placeholder="06:00" placeholderTextColor="#475569" />
                             </View>
                             <View style={styles.inputGroup}>
-                                <Text style={styles.scheduleLabel}>Apagado (HH:MM)</Text>
-                                <TextInput
-                                    style={styles.timeInput}
-                                    value={offTime}
-                                    onChangeText={setOffTime}
-                                    maxLength={5}
-                                    placeholder="21:15"
-                                    placeholderTextColor="#475569"
-                                />
+                                <Text style={styles.scheduleLabel}>Off</Text>
+                                <TextInput style={styles.timeInput} value={offTime} onChangeText={setOffTime} maxLength={5} placeholder="06:10" placeholderTextColor="#475569" />
                             </View>
-                        </View>
-                        <View style={styles.editActions}>
-                            <TouchableOpacity onPress={() => setIsEditing(false)} style={styles.cancelBtn}>
-                                <Text style={styles.cancelBtnText}>Cancelar</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity onPress={saveSchedule} style={styles.saveBtn} disabled={saving}>
-                                <Text style={styles.saveBtnText}>{saving ? 'Guardando...' : 'Guardar'}</Text>
+                            <TouchableOpacity onPress={handleSave} style={styles.miniSaveBtn} disabled={saving}>
+                                <Ionicons name={saving ? "sync-outline" : "checkmark"} size={20} color="#020617" />
                             </TouchableOpacity>
                         </View>
-                    </View>
-                ) : (
-                    <View style={styles.scheduleDisplay}>
-                        <View style={styles.scheduleItemsWrap}>
-                            <View style={styles.scheduleItem}>
-                                <Ionicons name="time-outline" size={18} color="#94A3B8" />
-                                <View style={styles.scheduleTexts}>
-                                    <Text style={styles.scheduleLabel}>Próximo Inicio</Text>
-                                    <Text style={styles.scheduleValue}>{schedOn}</Text>
-                                </View>
-                            </View>
-                            <View style={styles.scheduleItem}>
-                                <Ionicons name="timer-outline" size={18} color="#94A3B8" />
-                                <View style={styles.scheduleTexts}>
-                                    <Text style={styles.scheduleLabel}>Próximo Apagado</Text>
-                                    <Text style={styles.scheduleValue}>{schedOff}</Text>
-                                </View>
-                            </View>
-                        </View>
-                        <TouchableOpacity style={styles.editBtn} onPress={() => setIsEditing(true)}>
-                            <Ionicons name="pencil" size={20} color="#38BDF8" />
-                        </TouchableOpacity>
                     </View>
                 )}
+
+                <View style={styles.scheduleList}>
+                    {schedules.length === 0 ? (
+                        <Text style={styles.noSchedulesText}>No hay horarios configurados</Text>
+                    ) : (
+                        schedules.map((item, idx) => (
+                            <View key={idx} style={[styles.scheduleListItem, editingIdx === idx && { borderColor: '#38BDF8', borderWidth: 1 }]}>
+                                <View style={styles.scheduleRowInfo}>
+                                    <Ionicons name="time-outline" size={16} color="#38BDF8" />
+                                    <Text style={styles.scheduleTimeText}>{item.on} - {item.off}</Text>
+                                </View>
+                                <View style={{ flexDirection: 'row', gap: 12 }}>
+                                    <TouchableOpacity onPress={() => startEdit(idx)} style={styles.deleteBtn}>
+                                        <Ionicons name="pencil" size={18} color="#94A3B8" />
+                                    </TouchableOpacity>
+                                    <TouchableOpacity onPress={() => handleDelete(idx)} style={styles.deleteBtn}>
+                                        <Ionicons name="trash-outline" size={18} color="#F87171" />
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+                        ))
+                    )}
+                </View>
             </View>
         </View>
     );
@@ -230,20 +256,16 @@ export default function App() {
             const json = await response.json();
             setData(json);
         } catch (err: any) {
-            const msg = err?.name === 'AbortError'
-                ? 'Tiempo de espera agotado. El NodeMCU no responde (timeout 6s).'
-                : 'Error de conexión. Verifica que estés conectado a la red WiFi del NodeMCU.';
-            setError(msg);
-            // Mock data for display purposes
+            setError(err?.name === 'AbortError' ? 'Timeout en conexión.' : 'Error de red.');
             setData({
-                hora: new Date().toLocaleTimeString('en-US', { hour12: false }),
-                v1: 1,
+                hora: '14:00:00',
+                v1: 0,
                 v2: 0,
                 manual: false,
-                prog: {
-                    r1: { on: "21:25", off: "21:26" },
-                    r2: { on: "21:26", off: "21:27" }
-                }
+                prog: [
+                    { id: 'r1', on: '06:00', off: '06:10' },
+                    { id: 'r2', on: '18:00', off: '18:10' }
+                ]
             });
         }
     };
@@ -257,112 +279,62 @@ export default function App() {
     const handleToggle = async (id: 'r1' | 'r2', currentState: number) => {
         const newVal = currentState === 1 ? 0 : 1;
         const dataKey = id === 'r1' ? 'v1' : 'v2';
-
-        // Optimistic UI update
-        if (data) {
-            const newData = { ...data, [dataKey]: newVal } as SystemData;
-            setData(newData);
-        }
-
+        if (data) setData({ ...data, [dataKey]: newVal });
         try {
-            const response = await fetchWithTimeout('http://192.168.4.1/manual', {
+            await fetchWithTimeout('http://192.168.4.1/manual', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ id, val: newVal })
             });
-
-            const resData = await response.json().catch(() => null);
-            if (!response.ok || (resData && resData.statusCode !== 200)) {
-                throw new Error('Error al enviar comando');
-            }
         } catch (err) {
-            console.log('Error toggling manual state', err);
-            // Revert state on failure
-            if (data) {
-                const revertData = { ...data, [dataKey]: currentState } as SystemData;
-                setData(revertData);
-            }
+            if (data) setData({ ...data, [dataKey]: currentState });
         }
     };
 
-    const handleSchedule = async (id: 'r1' | 'r2', onTime: string, offTime: string) => {
+    const handleSaveAllSchedules = async (id: 'r1' | 'r2', updatedSchedules: ScheduleEntry[]) => {
         try {
             setError(null);
-            if (onTime >= offTime) {
-                throw new Error('La hora de apagado debe ser mayor a la hora de encendido');
-            }
+            const otherRelayID = id === 'r1' ? 'r2' : 'r1';
+            const otherRelaySchedules = (data?.prog || []).filter(s => s.id === otherRelayID);
+            const fullList = [...otherRelaySchedules, ...updatedSchedules];
 
             const response = await fetchWithTimeout('http://192.168.4.1/schedule', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id, on: onTime, off: offTime })
+                body: JSON.stringify({ prog: fullList })
             });
 
-            const resData = await response.json().catch(() => null);
-            
-            if (!response.ok || (resData && resData.statusCode !== 200)) {
-                if (resData && resData.statusCode === 1002) {
-                    throw new Error(resData.message);
-                }
-                throw new Error('Error al programar horario');
-            }
-
+            if (!response.ok) throw new Error('Error al guardar horarios');
+            triggerSuccessToast("Horarios actualizados");
             await fetchData();
             return true;
         } catch (err: any) {
-            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-            setError(err.message || 'Error desconocido');
+            setError(err.message);
             return false;
         }
     };
 
     const handleSetRtc = async (h: number, m: number, s: number) => {
         try {
-            if (error) {
-                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                setError(null);
-            }
-            setSuccessMsg(null);
-            const response = await fetchWithTimeout('http://192.168.4.1/setrtc', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+            await fetchWithTimeout('http://192.168.4.1/setrtc', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ h, m, s })
             });
-
-            const resData = await response.json().catch(() => null);
-            if (!response.ok || (resData && resData.statusCode !== 200)) {
-                throw new Error('Error al ajustar el reloj del sistema');
-            }
-
-            if (resData && (resData.message || resData.status === 'success')) {
-                triggerSuccessToast(`Reloj sincronizado exitosamente.`);
-            } else {
-                triggerSuccessToast('Reloj sincronizado exitosamente.');
-            }
-
+            triggerSuccessToast('Reloj sincronizado');
             await fetchData();
-            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
             setShowRtcConfig(false);
             return true;
         } catch (err: any) {
-            setError(err.message || 'Error desconocido enviando RTC');
+            setError('Error RTC');
             return false;
         }
     };
 
-    useEffect(() => {
-        fetchData();
-    }, []);
-
-
+    useEffect(() => { fetchData(); }, []);
 
     return (
         <SafeAreaView style={{ flex: 1, backgroundColor: '#0F172A' }}>
-            <KeyboardAvoidingView
-                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                style={{ flex: 1 }}
-                keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
-            >
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }} keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}>
                 <ScrollView
                     style={styles.container}
                     contentContainerStyle={{ flexGrow: 1, paddingBottom: 40 }}
@@ -383,15 +355,11 @@ export default function App() {
                             <View style={styles.rtcContainer}>
                                 <Text style={styles.rtcLabel}>HORA LOCAL</Text>
                                 <Text style={styles.rtcValue}>{data?.hora || '--:--:--'}</Text>
-                                {data?.manual && (
-                                    <Text style={{ color: '#34D399', fontSize: 10, fontWeight: 'bold', marginTop: 4, letterSpacing: 0.5 }}>
-                                        SISTEMA ACTIVO (VÍA BOTÓN/APP)
-                                    </Text>
-                                )}
+                                {data?.manual && <Text style={styles.activeLabel}>SISTEMA ACTIVO</Text>}
                             </View>
                         </View>
                         <Text style={styles.title}>Control de Riego</Text>
-                        <Text style={styles.subtitle}>Supervisa y administra los horarios de tu sistema de riego automático.</Text>
+                        <Text style={styles.subtitle}>Supervisa y gestiona múltiples eventos de riego dinámicos.</Text>
                     </View>
 
                     {error && (
@@ -409,29 +377,22 @@ export default function App() {
                     )}
 
                     <View style={styles.content}>
-                        {showRtcConfig && (
-                            <RTCConfig onSave={handleSetRtc} />
-                        )}
-
+                        {showRtcConfig && <RTCConfig onSave={handleSetRtc} />}
                         {data ? (
                             <>
                                 <RelayCard
-                                    id="r1"
-                                    title="Circuito 1 (R1)"
+                                    id="r1" title="Circuito 1 (R1)"
                                     state={data.v1}
-                                    schedOn={data.prog.r1.on}
-                                    schedOff={data.prog.r1.off}
+                                    schedules={(data.prog || []).filter(s => s.id === 'r1')}
                                     onToggle={handleToggle}
-                                    onSaveSchedule={handleSchedule}
+                                    onSaveAllSchedules={(updated) => handleSaveAllSchedules('r1', updated)}
                                 />
                                 <RelayCard
-                                    id="r2"
-                                    title="Circuito 2 (R2)"
+                                    id="r2" title="Circuito 2 (R2)"
                                     state={data.v2}
-                                    schedOn={data.prog.r2.on}
-                                    schedOff={data.prog.r2.off}
+                                    schedules={(data.prog || []).filter(s => s.id === 'r2')}
                                     onToggle={handleToggle}
-                                    onSaveSchedule={handleSchedule}
+                                    onSaveAllSchedules={(updated) => handleSaveAllSchedules('r2', updated)}
                                 />
                             </>
                         ) : (
@@ -445,227 +406,46 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#020617', // very dark slate
-    },
-    header: {
-        paddingHorizontal: 24,
-        paddingTop: 80,
-        paddingBottom: 32,
-        backgroundColor: '#0F172A',
-        borderBottomLeftRadius: 30,
-        borderBottomRightRadius: 30,
-    },
-    headerTop: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 24,
-    },
-    rtcContainer: {
-        alignItems: 'flex-end',
-    },
-    rtcLabel: {
-        color: '#64748B',
-        fontSize: 10,
-        fontWeight: '700',
-        letterSpacing: 1.2,
-    },
-    rtcValue: {
-        color: '#F8FAFC',
-        fontSize: 20,
-        fontWeight: 'bold',
-        fontVariant: ['tabular-nums'],
-    },
-    title: {
-        fontSize: 32,
-        fontWeight: '800',
-        color: '#F8FAFC',
-        marginBottom: 8,
-    },
-    subtitle: {
-        fontSize: 15,
-        color: '#94A3B8',
-        lineHeight: 22,
-    },
-    errorBox: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#450a0a',
-        padding: 16,
-        margin: 24,
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: '#7f1d1d',
-    },
-    errorText: {
-        color: '#FCA5A5',
-        marginLeft: 12,
-        flex: 1,
-        fontSize: 13,
-        lineHeight: 18,
-    },
-    successBox: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#022c22',
-        padding: 16,
-        marginHorizontal: 24,
-        marginTop: 15,
-        marginBottom: 24,
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: '#064e3b',
-    },
-    successText: {
-        color: '#6EE7B7',
-        marginLeft: 12,
-        flex: 1,
-        fontSize: 13,
-        lineHeight: 18,
-    },
-    content: {
-        padding: 24,
-    },
-    loadingText: {
-        color: '#94A3B8',
-        textAlign: 'center',
-        marginTop: 40,
-    },
-    card: {
-        backgroundColor: '#0F172A',
-        borderRadius: 24,
-        padding: 24,
-        marginBottom: 20,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.15,
-        shadowRadius: 20,
-        elevation: 10,
-        borderWidth: 1,
-        borderColor: '#1E293B',
-    },
-    cardHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 24,
-    },
-    cardTitle: {
-        fontSize: 18,
-        fontWeight: '700',
-        color: '#F1F5F9',
-    },
-    statusBadge: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 20,
-    },
-    statusOn: {
-        backgroundColor: '#059669', // Emerald 600
-    },
-    statusOff: {
-        backgroundColor: '#475569', // Slate 600
-    },
-    statusText: {
-        color: '#FFF',
-        fontSize: 12,
-        fontWeight: '700',
-        marginLeft: 6,
-        letterSpacing: 0.5,
-    },
-    scheduleContainer: {
-        backgroundColor: '#020617',
-        borderRadius: 16,
-        padding: 16,
-    },
-    scheduleDisplay: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-    },
-    scheduleItemsWrap: {
-        flex: 1,
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        paddingRight: 16,
-    },
-    scheduleItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
-    scheduleTexts: {
-        marginLeft: 12,
-    },
-    scheduleLabel: {
-        fontSize: 11,
-        color: '#64748B',
-        fontWeight: '600',
-        marginBottom: 2,
-    },
-    scheduleValue: {
-        fontSize: 16,
-        color: '#E2E8F0',
-        fontWeight: 'bold',
-        fontVariant: ['tabular-nums'],
-    },
-    editBtn: {
-        padding: 8,
-        backgroundColor: '#0F172A',
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: '#1E293B',
-    },
-    editModeContainer: {
-        width: '100%',
-    },
-    editRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        marginBottom: 16,
-    },
-    inputGroup: {
-        flex: 1,
-        marginRight: 8,
-    },
-    timeInput: {
-        backgroundColor: '#0F172A',
-        color: '#F8FAFC',
-        fontSize: 16,
-        fontWeight: 'bold',
-        padding: 12,
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: '#1E293B',
-        textAlign: 'center',
-        marginTop: 6,
-    },
-    editActions: {
-        flexDirection: 'row',
-        justifyContent: 'flex-end',
-        marginTop: 4,
-    },
-    cancelBtn: {
-        paddingVertical: 8,
-        paddingHorizontal: 16,
-        borderRadius: 8,
-        marginRight: 8,
-    },
-    cancelBtnText: {
-        color: '#94A3B8',
-        fontWeight: '600',
-    },
-    saveBtn: {
-        backgroundColor: '#38BDF8',
-        paddingVertical: 8,
-        paddingHorizontal: 20,
-        borderRadius: 8,
-    },
-    saveBtnText: {
-        color: '#020617',
-        fontWeight: 'bold',
-    },
+    container: { flex: 1, backgroundColor: '#020617' },
+    header: { paddingHorizontal: 24, paddingTop: 80, paddingBottom: 32, backgroundColor: '#0F172A', borderBottomLeftRadius: 30, borderBottomRightRadius: 30 },
+    headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
+    rtcContainer: { alignItems: 'flex-end' },
+    rtcLabel: { color: '#64748B', fontSize: 10, fontWeight: '700', letterSpacing: 1.2 },
+    rtcValue: { color: '#F8FAFC', fontSize: 20, fontWeight: 'bold', fontVariant: ['tabular-nums'] },
+    activeLabel: { color: '#34D399', fontSize: 10, fontWeight: 'bold', marginTop: 4 },
+    title: { fontSize: 32, fontWeight: '800', color: '#F8FAFC', marginBottom: 8 },
+    subtitle: { fontSize: 15, color: '#94A3B8', lineHeight: 22 },
+    errorBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#450a0a', padding: 16, margin: 24, borderRadius: 12, borderWidth: 1, borderColor: '#7f1d1d' },
+    errorText: { color: '#FCA5A5', marginLeft: 12, flex: 1, fontSize: 13 },
+    successBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#022c22', padding: 16, marginHorizontal: 24, marginVertical: 15, borderRadius: 12, borderWidth: 1, borderColor: '#064e3b' },
+    successText: { color: '#6EE7B7', marginLeft: 12, flex: 1, fontSize: 13 },
+    content: { padding: 24 },
+    loadingText: { color: '#94A3B8', textAlign: 'center', marginTop: 40 },
+    card: { backgroundColor: '#0F172A', borderRadius: 24, padding: 24, marginBottom: 20, elevation: 10, borderWidth: 1, borderColor: '#1E293B' },
+    cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+    cardTitle: { fontSize: 18, fontWeight: '700', color: '#F1F5F9' },
+    statusBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
+    statusOn: { backgroundColor: '#059669' },
+    statusOff: { backgroundColor: '#475569' },
+    statusText: { color: '#FFF', fontSize: 12, fontWeight: '700', marginLeft: 6 },
+    scheduleSection: { marginTop: 10, borderTopWidth: 1, borderTopColor: '#1E293B', paddingTop: 16 },
+    sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+    sectionTitle: { fontSize: 13, fontWeight: 'bold', color: '#64748B', textTransform: 'uppercase', letterSpacing: 0.5 },
+    addIconBtn: { padding: 4 },
+    addForm: { backgroundColor: '#020617', borderRadius: 12, padding: 12, marginBottom: 12 },
+    scheduleList: { gap: 10 },
+    scheduleListItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#1E293B', padding: 12, borderRadius: 12 },
+    scheduleRowInfo: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    scheduleTimeText: { color: '#F1F5F9', fontWeight: 'bold', fontSize: 14 },
+    deleteBtn: { padding: 4 },
+    noSchedulesText: { color: '#475569', fontSize: 13, textAlign: 'center', fontStyle: 'italic', marginVertical: 10 },
+    editRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
+    inputGroup: { flex: 1, marginRight: 8 },
+    scheduleLabel: { fontSize: 11, color: '#64748B', fontWeight: '600' },
+    timeInput: { backgroundColor: '#0F172A', color: '#F8FAFC', fontSize: 14, fontWeight: 'bold', padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#1E293B', textAlign: 'center', marginTop: 4 },
+    miniSaveBtn: { backgroundColor: '#38BDF8', padding: 10, borderRadius: 8, marginLeft: 4, height: 42, justifyContent: 'center' },
+    cancelBtn: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8 },
+    cancelBtnText: { color: '#94A3B8', fontWeight: '600' },
+    saveBtn: { backgroundColor: '#38BDF8', paddingVertical: 8, paddingHorizontal: 20, borderRadius: 8 },
+    saveBtnText: { color: '#020617', fontWeight: 'bold' },
 });

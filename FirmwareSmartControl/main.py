@@ -24,7 +24,11 @@ ADDR_RTC = 0x68
 FILE_NAME = "riego_config.json"
 
 # Variables de control
-horarios = {"r1": {"on": "06:00", "off": "06:10"}, "r2": {"on": "18:00", "off": "18:10"}}
+# Ahora horarios es una LISTA de dicts: [{"id": "r1", "on": "HH:MM", "off": "HH:MM"}, ...]
+horarios = [
+    {"id": "r1", "on": "06:00", "off": "06:10"},
+    {"id": "r2", "on": "18:00", "off": "18:10"}
+]
 b1_prev = 1
 b2_prev = 1
 
@@ -34,8 +38,10 @@ def cargar_config():
     try:
         if FILE_NAME in os.listdir():
             with open(FILE_NAME, "r") as f:
-                horarios = json.load(f)
-            print("Configuración cargada de Flash.")
+                data = json.load(f)
+                if isinstance(data, list):
+                    horarios = data
+                print("Configuración cargada de Flash.")
     except: pass
 
 cargar_config()
@@ -64,14 +70,14 @@ s.settimeout(0.1)
 s.bind(('', 80))
 s.listen(5)
 
-print("Servidor Riego OK (D5=V1, D6=V2)")
+print("Servidor Riego Multi-Evento OK")
 
 while True:
     h, m, seg = obtener_hora_rtc()
     hora_str = "{:02d}:{:02d}:{:02d}".format(h, m, seg)
     hora_min_actual = "{:02d}:{:02d}".format(h, m)
 
-    # 1. LÓGICA BOTONES FÍSICOS (Detección de flanco)
+    # 1. LÓGICA BOTONES FÍSICOS
     b1_act = btn1.value()
     if b1_act == 0 and b1_prev == 1:
         v1.value(not v1.value())
@@ -86,9 +92,9 @@ while True:
         time.sleep(0.05)
     b2_prev = b2_act
 
-    # 2. LÓGICA AUTOMÁTICA (Siempre activa)
-    for r_id, p in horarios.items():
-        obj_v = v1 if r_id == "r1" else v2
+    # 2. LÓGICA AUTOMÁTICA (Iterar sobre la lista de horarios)
+    for p in horarios:
+        obj_v = v1 if p['id'] == "r1" else v2
         if hora_min_actual == p["on"]: obj_v.value(1)
         elif hora_min_actual == p["off"]: obj_v.value(0)
 
@@ -132,14 +138,13 @@ while True:
             resp = {"statusCode": 200, "message": "Hora sincronizada"}
 
         elif "POST /schedule" in request:
-            h_on, m_on = map(int, data_j['on'].split(':'))
-            h_off, m_off = map(int, data_j['off'].split(':'))
-            if (h_off * 60 + m_off) <= (h_on * 60 + m_on):
-                resp = {"statusCode": 1002, "message": "Error: Off debe ser mayor a On"}
-            else:
-                horarios[data_j['id']] = {"on": data_j['on'], "off": data_j['off']}
+            # Recibimos la lista completa de horarios: {"prog": [...]}
+            if 'prog' in data_j and isinstance(data_j['prog'], list):
+                horarios = data_j['prog']
                 with open(FILE_NAME, "w") as f: json.dump(horarios, f)
                 resp = {"statusCode": 200, "data": horarios}
+            else:
+                resp = {"statusCode": 400, "message": "Invalid format"}
 
         conn.send(headers + json.dumps(resp))
         conn.close()
