@@ -11,10 +11,12 @@ import gc
 i2c = machine.I2C(scl=machine.Pin(5), sda=machine.Pin(4))
 v1 = machine.Pin(0, machine.Pin.OUT) # D3 - Válvula 1
 v2 = machine.Pin(2, machine.Pin.OUT) # D4 - Válvula 2
+led_status = machine.Pin(13, machine.Pin.OUT) # D7 - LED Estado
 
 # Forzamos apagado inicial
 v1.value(0)
 v2.value(0)
+led_status.value(0)
 
 # Botones físicos con PULL_UP
 btn1 = machine.Pin(14, machine.Pin.IN, machine.Pin.PULL_UP) # D5 (G14) -> V1
@@ -31,6 +33,7 @@ horarios = [
 ]
 b1_prev = 1
 b2_prev = 1
+last_blink = time.ticks_ms()
 
 # --- PERSISTENCIA ---
 def cargar_config():
@@ -73,6 +76,11 @@ s.listen(5)
 print("Servidor Riego Multi-Evento OK")
 
 while True:
+    # 0. LED Parpadeo (Indica ejecución)
+    if time.ticks_diff(time.ticks_ms(), last_blink) > 500:
+        led_status.value(not led_status.value())
+        last_blink = time.ticks_ms()
+
     h, m, seg = obtener_hora_rtc()
     hora_str = "{:02d}:{:02d}:{:02d}".format(h, m, seg)
     hora_min_actual = "{:02d}:{:02d}".format(h, m)

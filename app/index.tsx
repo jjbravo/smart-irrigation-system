@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useEffect, useState, useRef } from 'react';
-import { Animated, RefreshControl, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View, LayoutAnimation, Platform, UIManager, KeyboardAvoidingView, SafeAreaView } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Animated, ImageBackground, KeyboardAvoidingView, LayoutAnimation, Linking, Modal, Platform, RefreshControl, SafeAreaView, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, UIManager, View } from 'react-native';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
     UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -50,7 +50,7 @@ const RelayCard = ({ id, title, state, schedules, onToggle, onSaveAllSchedules }
         } else {
             newList = [...schedules, { id, on: onTime, off: offTime }];
         }
-        
+
         const success = await onSaveAllSchedules(newList);
         setSaving(false);
         if (success) {
@@ -122,7 +122,7 @@ const RelayCard = ({ id, title, state, schedules, onToggle, onSaveAllSchedules }
                                 <TextInput style={styles.timeInput} value={offTime} onChangeText={setOffTime} maxLength={5} placeholder="06:10" placeholderTextColor="#475569" />
                             </View>
                             <TouchableOpacity onPress={handleSave} style={styles.miniSaveBtn} disabled={saving}>
-                                <Ionicons name={saving ? "sync-outline" : "checkmark"} size={20} color="#020617" />
+                                <Ionicons name={saving ? "sync-outline" : "checkmark"} size={20} color="#0b122b" />
                             </TouchableOpacity>
                         </View>
                     </View>
@@ -155,7 +155,7 @@ const RelayCard = ({ id, title, state, schedules, onToggle, onSaveAllSchedules }
     );
 }
 
-const RTCConfig = ({ onSave }: { onSave: (h: number, m: number, s: number) => Promise<boolean> }) => {
+const SettingsModal = ({ isVisible, onClose, onSave }: { isVisible: boolean, onClose: () => void, onSave: (h: number, m: number, s: number) => Promise<boolean> }) => {
     const d = new Date();
     const [h, setH] = useState(d.getHours().toString().padStart(2, '0'));
     const [m, setM] = useState(d.getMinutes().toString().padStart(2, '0'));
@@ -176,34 +176,54 @@ const RTCConfig = ({ onSave }: { onSave: (h: number, m: number, s: number) => Pr
     };
 
     return (
-        <View style={[styles.card, { borderColor: '#38BDF8', borderWidth: 1 }]}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
-                <Ionicons name="time" size={20} color="#38BDF8" />
-                <Text style={[styles.cardTitle, { marginLeft: 8 }]}>Sincronizar Reloj Interno</Text>
-            </View>
-            <View style={styles.editRow}>
-                <View style={styles.inputGroup}>
-                    <Text style={styles.scheduleLabel}>Hora</Text>
-                    <TextInput style={styles.timeInput} value={h} onChangeText={setH} keyboardType="numeric" maxLength={2} />
+        <Modal visible={isVisible} transparent animationType="fade" onRequestClose={onClose}>
+            <View style={styles.modalOverlay}>
+                <View style={styles.modalContent}>
+                    <View style={styles.modalHeader}>
+                        <Text style={styles.modalTitle}>Configuración</Text>
+                        <TouchableOpacity onPress={onClose}>
+                            <Ionicons name="close" size={24} color="#94A3B8" />
+                        </TouchableOpacity>
+                    </View>
+
+                    <Text style={styles.modalSubtitle}>Sincronizar reloj interno</Text>
+                    <View style={styles.editRow}>
+                        <View style={styles.inputGroup}>
+                            <Text style={styles.scheduleLabel}>Hora</Text>
+                            <TextInput style={styles.timeInput} value={h} onChangeText={setH} keyboardType="numeric" maxLength={2} />
+                        </View>
+                        <View style={styles.inputGroup}>
+                            <Text style={styles.scheduleLabel}>Min</Text>
+                            <TextInput style={styles.timeInput} value={m} onChangeText={setM} keyboardType="numeric" maxLength={2} />
+                        </View>
+                        <View style={styles.inputGroup}>
+                            <Text style={styles.scheduleLabel}>Seg</Text>
+                            <TextInput style={styles.timeInput} value={s} onChangeText={setS} keyboardType="numeric" maxLength={2} />
+                        </View>
+                    </View>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 12, marginBottom: 24 }}>
+                        <TouchableOpacity onPress={handleSyncPhone} style={styles.cancelBtn}>
+                            <Text style={styles.cancelBtnText}>Hora Actual</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={handleSave} style={styles.saveBtn} disabled={saving}>
+                            <Text style={styles.saveBtnText}>{saving ? 'Enviando...' : 'Ajustar'}</Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    <View style={{ borderTopWidth: 1, borderTopColor: '#27344f', paddingTop: 20 }}>
+                        <Text style={styles.modalSubtitle}>Configurar Wifi</Text>
+                        <TouchableOpacity
+                            onPress={() => Linking.sendIntent('android.settings.WIFI_SETTINGS')}
+                            style={[styles.wifiShortcutBtn]}
+                        >
+                            <Ionicons name="wifi" size={20} color="#38BDF8" style={{ marginRight: 12 }} />
+                            <Text style={styles.wifiShortcutText}>Abrir Ajustes de Wi-Fi</Text>
+                            <Ionicons name="chevron-forward" size={16} color="#475569" style={{ marginLeft: 'auto' }} />
+                        </TouchableOpacity>
+                    </View>
                 </View>
-                <View style={styles.inputGroup}>
-                    <Text style={styles.scheduleLabel}>Min</Text>
-                    <TextInput style={styles.timeInput} value={m} onChangeText={setM} keyboardType="numeric" maxLength={2} />
-                </View>
-                <View style={styles.inputGroup}>
-                    <Text style={styles.scheduleLabel}>Seg</Text>
-                    <TextInput style={styles.timeInput} value={s} onChangeText={setS} keyboardType="numeric" maxLength={2} />
-                </View>
             </View>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 }}>
-                <TouchableOpacity onPress={handleSyncPhone} style={styles.cancelBtn}>
-                    <Text style={styles.cancelBtnText}>Hora Actual</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={handleSave} style={styles.saveBtn} disabled={saving}>
-                    <Text style={styles.saveBtnText}>{saving ? 'Enviando...' : 'Ajustar'}</Text>
-                </TouchableOpacity>
-            </View>
-        </View>
+        </Modal>
     );
 };
 
@@ -250,11 +270,11 @@ export default function App() {
 
     const fetchData = async () => {
         try {
-            setError(null);
             const response = await fetchWithTimeout('http://192.168.4.1/status');
             if (!response.ok) throw new Error('Network response was not ok');
             const json = await response.json();
             setData(json);
+            setError(null);
         } catch (err: any) {
             setError(err?.name === 'AbortError' ? 'Timeout en conexión.' : 'Error de red.');
             setData({
@@ -330,10 +350,14 @@ export default function App() {
         }
     };
 
-    useEffect(() => { fetchData(); }, []);
+    useEffect(() => {
+        fetchData();
+        const interval = setInterval(fetchData, 1000);
+        return () => clearInterval(interval);
+    }, []);
 
     return (
-        <SafeAreaView style={{ flex: 1, backgroundColor: '#0F172A' }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#17213b', overflow: 'hidden' }}>
             <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }} keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}>
                 <ScrollView
                     style={styles.container}
@@ -341,14 +365,18 @@ export default function App() {
                     refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#fff" />}
                     keyboardShouldPersistTaps="handled"
                 >
-                    <View style={styles.header}>
+                    <ImageBackground
+                        source={require('../assets/pbg.png')}
+                        style={styles.header}
+                        resizeMode="cover"
+                        imageStyle={{ opacity: 0.25 }}
+                    >
                         <View style={styles.headerTop}>
                             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                <Ionicons name="water-outline" size={40} color="#38BDF8" />
-                                <TouchableOpacity onPress={handleRefresh} style={{ marginLeft: 16, padding: 8, backgroundColor: '#1E293B', borderRadius: 12 }}>
-                                    <Ionicons name="refresh" size={24} color="#38BDF8" />
-                                </TouchableOpacity>
-                                <TouchableOpacity onPress={toggleRtcConfig} style={{ marginLeft: 8, padding: 8, backgroundColor: '#1E293B', borderRadius: 12 }}>
+                                <View style={styles.logoBadge}>
+                                    <Ionicons name="leaf" size={24} color="#34D399" />
+                                </View>
+                                <TouchableOpacity onPress={toggleRtcConfig} style={{ marginLeft: 8, padding: 8, backgroundColor: '#27344f', borderRadius: 12 }}>
                                     <Ionicons name={showRtcConfig ? "close" : "settings"} size={24} color={showRtcConfig ? "#F87171" : "#94A3B8"} />
                                 </TouchableOpacity>
                             </View>
@@ -360,24 +388,16 @@ export default function App() {
                         </View>
                         <Text style={styles.title}>Control de Riego</Text>
                         <Text style={styles.subtitle}>Supervisa y gestiona múltiples eventos de riego dinámicos.</Text>
-                    </View>
+                    </ImageBackground>
 
-                    {error && (
-                        <View style={styles.errorBox}>
-                            <Ionicons name="warning" size={20} color="#F87171" />
-                            <Text style={styles.errorText}>{error}</Text>
-                        </View>
-                    )}
 
-                    {successMsg && (
-                        <Animated.View style={[styles.successBox, { opacity: fadeAnim }]}>
-                            <Ionicons name="checkmark-circle" size={20} color="#34D399" />
-                            <Text style={styles.successText}>{successMsg}</Text>
-                        </Animated.View>
-                    )}
 
                     <View style={styles.content}>
-                        {showRtcConfig && <RTCConfig onSave={handleSetRtc} />}
+                        <SettingsModal
+                            isVisible={showRtcConfig}
+                            onClose={() => setShowRtcConfig(false)}
+                            onSave={handleSetRtc}
+                        />
                         {data ? (
                             <>
                                 <RelayCard
@@ -398,16 +418,43 @@ export default function App() {
                         ) : (
                             <Text style={styles.loadingText}>Cargando estado...</Text>
                         )}
+
+                        <View style={styles.footer}>
+                            <Text style={styles.versionText}>Smart Irrigation System</Text>
+                            <Text style={styles.versionNumber}>Versión 2.5.0 • 2026</Text>
+                        </View>
                     </View>
                 </ScrollView>
+
+                {error && (
+                    <View style={styles.errorBox}>
+                        <Ionicons name="warning" size={20} color="#F87171" />
+                        <Text style={styles.errorText}>{error}</Text>
+                    </View>
+                )}
+
+                {successMsg && (
+                    <Animated.View style={[styles.successBox, { opacity: fadeAnim }]}>
+                        <Ionicons name="checkmark-circle" size={20} color="#34D399" />
+                        <Text style={styles.successText}>{successMsg}</Text>
+                    </Animated.View>
+                )}
             </KeyboardAvoidingView>
         </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#020617' },
-    header: { paddingHorizontal: 24, paddingTop: 80, paddingBottom: 32, backgroundColor: '#0F172A', borderBottomLeftRadius: 30, borderBottomRightRadius: 30 },
+    container: { flex: 1, backgroundColor: '#0b122b' },
+    header: {
+        paddingHorizontal: 24,
+        paddingTop: 80,
+        paddingBottom: 32,
+        backgroundColor: '#17213b',
+        borderBottomLeftRadius: 30,
+        borderBottomRightRadius: 30,
+        overflow: 'hidden',
+    },
     headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
     rtcContainer: { alignItems: 'flex-end' },
     rtcLabel: { color: '#64748B', fontSize: 10, fontWeight: '700', letterSpacing: 1.2 },
@@ -415,26 +462,54 @@ const styles = StyleSheet.create({
     activeLabel: { color: '#34D399', fontSize: 10, fontWeight: 'bold', marginTop: 4 },
     title: { fontSize: 32, fontWeight: '800', color: '#F8FAFC', marginBottom: 8 },
     subtitle: { fontSize: 15, color: '#94A3B8', lineHeight: 22 },
-    errorBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#450a0a', padding: 16, margin: 24, borderRadius: 12, borderWidth: 1, borderColor: '#7f1d1d' },
+    errorBox: {
+        position: 'absolute',
+        bottom: 50,
+        left: 20,
+        right: 20,
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#5c1414',
+        padding: 16,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#7f1d1d',
+        zIndex: 5000,
+        elevation: 10,
+    },
     errorText: { color: '#FCA5A5', marginLeft: 12, flex: 1, fontSize: 13 },
-    successBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#022c22', padding: 16, marginHorizontal: 24, marginVertical: 15, borderRadius: 12, borderWidth: 1, borderColor: '#064e3b' },
+    successBox: {
+        position: 'absolute',
+        bottom: 50,
+        left: 20,
+        right: 20,
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#063e32',
+        padding: 16,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#064e3b',
+        zIndex: 5000,
+        elevation: 10,
+    },
     successText: { color: '#6EE7B7', marginLeft: 12, flex: 1, fontSize: 13 },
     content: { padding: 24 },
     loadingText: { color: '#94A3B8', textAlign: 'center', marginTop: 40 },
-    card: { backgroundColor: '#0F172A', borderRadius: 24, padding: 24, marginBottom: 20, elevation: 10, borderWidth: 1, borderColor: '#1E293B' },
+    card: { backgroundColor: '#17213b', borderRadius: 24, padding: 24, marginBottom: 20, elevation: 10, borderWidth: 1, borderColor: '#27344f' },
     cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
     cardTitle: { fontSize: 18, fontWeight: '700', color: '#F1F5F9' },
     statusBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
     statusOn: { backgroundColor: '#059669' },
     statusOff: { backgroundColor: '#475569' },
     statusText: { color: '#FFF', fontSize: 12, fontWeight: '700', marginLeft: 6 },
-    scheduleSection: { marginTop: 10, borderTopWidth: 1, borderTopColor: '#1E293B', paddingTop: 16 },
+    scheduleSection: { marginTop: 10, borderTopWidth: 1, borderTopColor: '#27344f', paddingTop: 16 },
     sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
     sectionTitle: { fontSize: 13, fontWeight: 'bold', color: '#64748B', textTransform: 'uppercase', letterSpacing: 0.5 },
     addIconBtn: { padding: 4 },
-    addForm: { backgroundColor: '#020617', borderRadius: 12, padding: 12, marginBottom: 12 },
+    addForm: { backgroundColor: '#0b122b', borderRadius: 12, padding: 12, marginBottom: 12 },
     scheduleList: { gap: 10 },
-    scheduleListItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#1E293B', padding: 12, borderRadius: 12 },
+    scheduleListItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#27344f', padding: 12, borderRadius: 12 },
     scheduleRowInfo: { flexDirection: 'row', alignItems: 'center', gap: 10 },
     scheduleTimeText: { color: '#F1F5F9', fontWeight: 'bold', fontSize: 14 },
     deleteBtn: { padding: 4 },
@@ -442,10 +517,86 @@ const styles = StyleSheet.create({
     editRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
     inputGroup: { flex: 1, marginRight: 8 },
     scheduleLabel: { fontSize: 11, color: '#64748B', fontWeight: '600' },
-    timeInput: { backgroundColor: '#0F172A', color: '#F8FAFC', fontSize: 14, fontWeight: 'bold', padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#1E293B', textAlign: 'center', marginTop: 4 },
+    timeInput: { backgroundColor: '#17213b', color: '#F8FAFC', fontSize: 14, fontWeight: 'bold', padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#27344f', textAlign: 'center', marginTop: 4 },
     miniSaveBtn: { backgroundColor: '#38BDF8', padding: 10, borderRadius: 8, marginLeft: 4, height: 42, justifyContent: 'center' },
     cancelBtn: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8 },
     cancelBtnText: { color: '#94A3B8', fontWeight: '600' },
     saveBtn: { backgroundColor: '#38BDF8', paddingVertical: 8, paddingHorizontal: 20, borderRadius: 8 },
-    saveBtnText: { color: '#020617', fontWeight: 'bold' },
+    saveBtnText: { color: '#0b122b', fontWeight: 'bold' },
+    logoBadge: {
+        width: 48,
+        height: 48,
+        backgroundColor: '#064e3b',
+        borderRadius: 16,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: '#059669',
+    },
+    footer: {
+        marginTop: 40,
+        alignItems: 'center',
+        opacity: 0.5,
+    },
+    versionText: {
+        color: '#94A3B8',
+        fontSize: 12,
+        fontWeight: 'bold',
+        letterSpacing: 1,
+    },
+    versionNumber: {
+        color: '#64748B',
+        fontSize: 10,
+        marginTop: 4,
+    },
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(11, 18, 43, 0.85)',
+        justifyContent: 'center',
+        padding: 24,
+    },
+    modalContent: {
+        backgroundColor: '#17213b',
+        borderRadius: 32,
+        padding: 24,
+        borderWidth: 1,
+        borderColor: '#27344f',
+        elevation: 20,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.5,
+        shadowRadius: 20,
+    },
+    modalHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 24,
+    },
+    modalTitle: {
+        fontSize: 24,
+        fontWeight: 'bold',
+        color: '#F8FAFC',
+    },
+    modalSubtitle: {
+        fontSize: 14,
+        fontWeight: 'bold',
+        color: '#38BDF8',
+        textTransform: 'uppercase',
+        letterSpacing: 1,
+        marginBottom: 16,
+    },
+    wifiShortcutBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#27344f',
+        padding: 16,
+        borderRadius: 16,
+        marginTop: 8,
+    },
+    wifiShortcutText: {
+        color: '#F1F5F9',
+        fontSize: 15,
+        fontWeight: '600',
+    },
 });
