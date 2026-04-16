@@ -6,21 +6,34 @@ import os
 import time
 import gc
 
+# --- RETRASO DE SEGURIDAD ---
+# Permite interrumpir la ejecución con herramientas como ampy/mpremote antes del bucle
+print("Esperando 3 segundos para carga de código...")
+time.sleep(3)
+
 # --- CONFIGURACIÓN HARDWARE ---
-# I2C: D1 (SCL), D2 (SDA)
+# I2C (Reloj): D1 (SCL), D2 (SDA) -> GPIO 5, 4
+# Usamos pines estándar I2C en NodeMCU.
 i2c = machine.I2C(scl=machine.Pin(5), sda=machine.Pin(4))
-v1 = machine.Pin(0, machine.Pin.OUT) # D3 - Válvula 1
-v2 = machine.Pin(2, machine.Pin.OUT) # D4 - Válvula 2
-led_status = machine.Pin(13, machine.Pin.OUT) # D7 - LED Estado
+valves = {
+    "r1": machine.Pin(16, machine.Pin.OUT), # D0
+    "r2": machine.Pin(0, machine.Pin.OUT),  # D3
+    "r3": machine.Pin(2, machine.Pin.OUT),  # D4
+    "r4": machine.Pin(14, machine.Pin.OUT) # D5
+}
 
 # Forzamos apagado inicial
-v1.value(0)
-v2.value(0)
-led_status.value(0)
+for v in valves.values(): v.value(0)
 
-# Botones físicos con PULL_UP
-btn1 = machine.Pin(14, machine.Pin.IN, machine.Pin.PULL_UP) # D5 (G14) -> V1
-btn2 = machine.Pin(12, machine.Pin.IN, machine.Pin.PULL_UP) # D6 (G12) -> V2
+# Botones físicos
+btn1 = machine.Pin(12, machine.Pin.IN, machine.Pin.PULL_UP) # D6 -> r1
+btn2 = machine.Pin(13, machine.Pin.IN, machine.Pin.PULL_UP) # D7 -> r2
+btn3 = machine.Pin(15, machine.Pin.IN) # D8 -> r3 (Pull-down externo)
+# El botón 4 usa el puerto analógico A0 para evitar usar pines de la Flash (S1, S2, S3)
+adc4 = machine.ADC(0) 
+
+b1_prev, b2_prev, b4_prev = 1, 1, 1
+b3_prev = 0 # D8 es pull-down (Inicia en 0)
 
 ADDR_RTC = 0x68
 FILE_NAME = "riego_config.json"
@@ -31,9 +44,7 @@ horarios = [
     {"id": "r1", "on": "06:00", "off": "06:10"},
     {"id": "r2", "on": "18:00", "off": "18:10"}
 ]
-b1_prev = 1
-b2_prev = 1
-last_blink = time.ticks_ms()
+
 
 # --- PERSISTENCIA ---
 def cargar_config():
@@ -76,35 +87,50 @@ s.listen(5)
 print("Servidor Riego Multi-Evento OK")
 
 while True:
-    # 0. LED Parpadeo (Indica ejecución)
-    if time.ticks_diff(time.ticks_ms(), last_blink) > 500:
-        led_status.value(not led_status.value())
-        last_blink = time.ticks_ms()
+    # Eliminado parpadeo LED (Indica ejecución)
 
     h, m, seg = obtener_hora_rtc()
     hora_str = "{:02d}:{:02d}:{:02d}".format(h, m, seg)
     hora_min_actual = "{:02d}:{:02d}".format(h, m)
 
     # 1. LÓGICA BOTONES FÍSICOS
+    # Botón 1 -> r1
     b1_act = btn1.value()
     if b1_act == 0 and b1_prev == 1:
-        v1.value(not v1.value())
-        print("[BTN] Toggle V1:", v1.value())
+        valves["r1"].value(not valves["r1"].value())
         time.sleep(0.05)
     b1_prev = b1_act
 
+    # Botón 2 -> r2
     b2_act = btn2.value()
     if b2_act == 0 and b2_prev == 1:
-        v2.value(not v2.value())
-        print("[BTN] Toggle V2:", v2.value())
+        valves["r2"].value(not valves["r2"].value())
         time.sleep(0.05)
     b2_prev = b2_act
 
-    # 2. LÓGICA AUTOMÁTICA (Iterar sobre la lista de horarios)
+    # Botón 3 -> r3 (D8 es Pull-down: 1 activo)
+    b3_act = btn3.value()
+    if b3_act == 1 and b3_prev == 0:
+        valves["r3"].value(not valves["r3"].value())
+        time.sleep(0.05)
+    b3_prev = b3_act
+
+    # Botón 4 -> r4 (Usa A0 como digital)
+    b4_act = 1 if adc4.read() > 500 else 0
+    if b4_act == 0 and b4_prev == 1:
+        valves["r4"].value(not valves["r4"].value())
+        time.sleep(0.05)
+    b4_prev = b4_act
+
+
+
+    # 2. LÓGICA AUTOMÁTICA
     for p in horarios:
-        obj_v = v1 if p['id'] == "r1" else v2
-        if hora_min_actual == p["on"]: obj_v.value(1)
-        elif hora_min_actual == p["off"]: obj_v.value(0)
+        v_id = p.get('id')
+        if v_id in valves:
+            v_pin = valves[v_id]
+            if hora_min_actual == p["on"]: v_pin.value(1)
+            elif hora_min_actual == p["off"]: v_pin.value(0)
 
     # 3. SERVIDOR API
     try:
@@ -126,19 +152,21 @@ while True:
         headers = 'HTTP/1.1 200 OK\nContent-Type: application/json\nAccess-Control-Allow-Origin: *\nConnection: close\n\n'
 
         if "GET /status" in request:
+            v_states = {"v"+k[1:]: v.value() for k, v in valves.items()}
+            is_manual = any(v.value() for v in valves.values())
             resp = {
                 "statusCode": 200,
                 "hora": hora_str,
-                "v1": v1.value(),
-                "v2": v2.value(),
-                "manual": (v1.value() or v2.value()),
+                "manual": is_manual,
                 "prog": horarios
             }
+            resp.update(v_states)
 
         elif "POST /manual" in request:
-            target = v1 if data_j['id'] == "r1" else v2
-            target.value(int(data_j['val']))
-            resp = {"statusCode": 200, "state": target.value()}
+            v_id = data_j.get('id')
+            if v_id in valves:
+                valves[v_id].value(int(data_j['val']))
+                resp = {"statusCode": 200, "state": valves[v_id].value()}
 
         elif "POST /setrtc" in request:
             nw_t = bytes([dec_to_bcd(data_j['s']) & 0x7F, dec_to_bcd(data_j['m']), dec_to_bcd(data_j['h'])])
@@ -159,3 +187,4 @@ while True:
     except OSError: pass
     
     gc.collect()
+    time.sleep(0.01)

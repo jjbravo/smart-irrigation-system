@@ -7,38 +7,43 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 }
 
 type ScheduleEntry = {
-    id: 'r1' | 'r2';
+    id: string;
     on: string;
     off: string;
 };
 
 type SystemData = {
     hora: string;
-    v1: number;
-    v2: number;
     manual: boolean;
     prog: ScheduleEntry[];
+    [key: string]: any;
 };
 
 type RelayCardProps = {
-    id: 'r1' | 'r2';
+    id: string;
     title: string;
     state: number;
     schedules: ScheduleEntry[];
-    onToggle: (id: 'r1' | 'r2', currentState: number) => Promise<void>;
-    onSaveAllSchedules: (updatedSchedules: ScheduleEntry[]) => Promise<boolean>;
+    onToggle: (id: string, currentState: number) => Promise<void>;
+    onSaveAllSchedules: (id: string, updatedSchedules: ScheduleEntry[]) => Promise<boolean>;
+    onRemove: (id: string) => void;
 };
 
-const RelayCard = ({ id, title, state, schedules, onToggle, onSaveAllSchedules }: RelayCardProps) => {
+const RelayCard = ({ id, title, state, schedules, onToggle, onSaveAllSchedules, onRemove }: RelayCardProps) => {
     const isOn = state === 1;
     const [isAdding, setIsAdding] = useState(false);
     const [editingIdx, setEditingIdx] = useState<number | null>(null);
-    const [onTime, setOnTime] = useState('06:00');
-    const [offTime, setOffTime] = useState('06:10');
+    const [onH, setOnH] = useState('06');
+    const [onM, setOnM] = useState('00');
+    const [offH, setOffH] = useState('06');
+    const [offM, setOffM] = useState('10');
     const [saving, setSaving] = useState(false);
 
     const handleSave = async () => {
-        if (onTime >= offTime) {
+        const fullOn = `${onH.padStart(2, '0')}:${onM.padStart(2, '0')}`;
+        const fullOff = `${offH.padStart(2, '0')}:${offM.padStart(2, '0')}`;
+
+        if (fullOn >= fullOff) {
             alert("La hora de apagado debe ser mayor a la de inicio");
             return;
         }
@@ -46,39 +51,41 @@ const RelayCard = ({ id, title, state, schedules, onToggle, onSaveAllSchedules }
         let newList;
         if (editingIdx !== null) {
             newList = [...schedules];
-            newList[editingIdx] = { id, on: onTime, off: offTime };
+            newList[editingIdx] = { id, on: fullOn, off: fullOff };
         } else {
-            newList = [...schedules, { id, on: onTime, off: offTime }];
+            newList = [...schedules, { id, on: fullOn, off: fullOff }];
         }
 
-        const success = await onSaveAllSchedules(newList);
+        const success = await onSaveAllSchedules(id, newList);
         setSaving(false);
         if (success) {
             setIsAdding(false);
             setEditingIdx(null);
-            setOnTime('06:00');
-            setOffTime('06:10');
+            setOnH('06'); setOnM('00');
+            setOffH('06'); setOffM('10');
         }
     };
 
     const startEdit = (index: number) => {
         const item = schedules[index];
-        setOnTime(item.on);
-        setOffTime(item.off);
+        const [oh, om] = item.on.split(':');
+        const [fh, fm] = item.off.split(':');
+        setOnH(oh); setOnM(om);
+        setOffH(fh); setOffM(fm);
         setEditingIdx(index);
         setIsAdding(true);
     };
 
     const startAdd = () => {
-        setOnTime('06:00');
-        setOffTime('06:10');
+        setOnH('06'); setOnM('00');
+        setOffH('06'); setOffM('10');
         setEditingIdx(null);
         setIsAdding(!isAdding);
     };
 
     const handleDelete = async (index: number) => {
         const newList = schedules.filter((_, i) => i !== index);
-        await onSaveAllSchedules(newList);
+        await onSaveAllSchedules(id, newList);
     };
 
     return (
@@ -91,12 +98,17 @@ const RelayCard = ({ id, title, state, schedules, onToggle, onSaveAllSchedules }
                         <Text style={styles.statusText}>{isOn ? "ENCENDIDO" : "APAGADO"}</Text>
                     </View>
                 </View>
-                <Switch
-                    value={isOn}
-                    onValueChange={() => onToggle(id, state)}
-                    trackColor={{ false: '#334155', true: '#059669' }}
-                    thumbColor={'#F8FAFC'}
-                />
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Switch
+                        value={isOn}
+                        onValueChange={() => onToggle(id, state)}
+                        trackColor={{ false: '#334155', true: '#059669' }}
+                        thumbColor={'#F8FAFC'}
+                    />
+                    <TouchableOpacity onPress={() => onRemove(id)} style={{ marginLeft: 16 }}>
+                        <Ionicons name="trash" size={20} color="#64748B" />
+                    </TouchableOpacity>
+                </View>
             </View>
 
             <View style={styles.scheduleSection}>
@@ -114,12 +126,20 @@ const RelayCard = ({ id, title, state, schedules, onToggle, onSaveAllSchedules }
                         </Text>
                         <View style={styles.editRow}>
                             <View style={styles.inputGroup}>
-                                <Text style={styles.scheduleLabel}>On</Text>
-                                <TextInput style={styles.timeInput} value={onTime} onChangeText={setOnTime} maxLength={5} placeholder="06:00" placeholderTextColor="#475569" />
+                                <Text style={styles.scheduleLabel}>Inicio (H:M)</Text>
+                                <View style={styles.timeInputPair}>
+                                    <TextInput style={styles.miniTimeInput} value={onH} onChangeText={setOnH} maxLength={2} keyboardType="numeric" placeholder="00" placeholderTextColor="#475569" />
+                                    <Text style={styles.timeSeparator}>:</Text>
+                                    <TextInput style={styles.miniTimeInput} value={onM} onChangeText={setOnM} maxLength={2} keyboardType="numeric" placeholder="00" placeholderTextColor="#475569" />
+                                </View>
                             </View>
                             <View style={styles.inputGroup}>
-                                <Text style={styles.scheduleLabel}>Off</Text>
-                                <TextInput style={styles.timeInput} value={offTime} onChangeText={setOffTime} maxLength={5} placeholder="06:10" placeholderTextColor="#475569" />
+                                <Text style={styles.scheduleLabel}>Fin (H:M)</Text>
+                                <View style={styles.timeInputPair}>
+                                    <TextInput style={styles.miniTimeInput} value={offH} onChangeText={setOffH} maxLength={2} keyboardType="numeric" placeholder="00" placeholderTextColor="#475569" />
+                                    <Text style={styles.timeSeparator}>:</Text>
+                                    <TextInput style={styles.miniTimeInput} value={offM} onChangeText={setOffM} maxLength={2} keyboardType="numeric" placeholder="00" placeholderTextColor="#475569" />
+                                </View>
                             </View>
                             <TouchableOpacity onPress={handleSave} style={styles.miniSaveBtn} disabled={saving}>
                                 <Ionicons name={saving ? "sync-outline" : "checkmark"} size={20} color="#0b122b" />
@@ -234,6 +254,25 @@ export default function App() {
     const fadeAnim = useRef(new Animated.Value(0)).current;
     const [refreshing, setRefreshing] = useState(false);
     const [showRtcConfig, setShowRtcConfig] = useState(false);
+    const [activeCircuits, setActiveCircuits] = useState<string[]>(['r1', 'r2']);
+
+    const handleAddCircuit = () => {
+        if (activeCircuits.length < 4) {
+            const nextId = `r${activeCircuits.length + 1}`;
+            setActiveCircuits(prev => [...prev, nextId]);
+            triggerSuccessToast(`Circuito ${activeCircuits.length + 1} listo`);
+        }
+    };
+
+    const handleRemoveCircuit = async (id: string) => {
+        // 1. Apagar físicamente
+        await handleToggle(id, 0);
+        // 2. Limpiar horarios en el NodeMCU para este ID
+        await handleSaveAllSchedules(id, []);
+        // 3. Remover del estado local
+        setActiveCircuits(prev => prev.filter(cid => cid !== id));
+        triggerSuccessToast(`Circuito ${id.toUpperCase()} eliminado`);
+    };
 
     const toggleRtcConfig = () => {
         LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -279,13 +318,14 @@ export default function App() {
             setError(err?.name === 'AbortError' ? 'Timeout en conexión.' : 'Error de red.');
             setData({
                 hora: '14:00:00',
-                v1: 0,
-                v2: 0,
                 manual: false,
                 prog: [
                     { id: 'r1', on: '06:00', off: '06:10' },
-                    { id: 'r2', on: '18:00', off: '18:10' }
-                ]
+                    { id: 'r2', on: '18:00', off: '18:10' },
+                    { id: 'r3', on: '12:00', off: '12:10' },
+                    { id: 'r4', on: '20:00', off: '20:10' }
+                ],
+                v1: 0, v2: 0, v3: 0, v4: 0
             });
         }
     };
@@ -296,10 +336,10 @@ export default function App() {
         setRefreshing(false);
     };
 
-    const handleToggle = async (id: 'r1' | 'r2', currentState: number) => {
+    const handleToggle = async (id: string, currentState: number) => {
         const newVal = currentState === 1 ? 0 : 1;
-        const dataKey = id === 'r1' ? 'v1' : 'v2';
-        if (data) setData({ ...data, [dataKey]: newVal });
+        const vKey = id.startsWith('r') ? `v${id.charAt(1)}` : id;
+        if (data) setData({ ...data, [vKey]: newVal });
         try {
             await fetchWithTimeout('http://192.168.4.1/manual', {
                 method: 'POST',
@@ -307,15 +347,14 @@ export default function App() {
                 body: JSON.stringify({ id, val: newVal })
             });
         } catch (err) {
-            if (data) setData({ ...data, [dataKey]: currentState });
+            if (data) setData({ ...data, [vKey]: currentState });
         }
     };
 
-    const handleSaveAllSchedules = async (id: 'r1' | 'r2', updatedSchedules: ScheduleEntry[]) => {
+    const handleSaveAllSchedules = async (id: string, updatedSchedules: ScheduleEntry[]) => {
         try {
             setError(null);
-            const otherRelayID = id === 'r1' ? 'r2' : 'r1';
-            const otherRelaySchedules = (data?.prog || []).filter(s => s.id === otherRelayID);
+            const otherRelaySchedules = (data?.prog || []).filter(s => s.id !== id);
             const fullList = [...otherRelaySchedules, ...updatedSchedules];
 
             const response = await fetchWithTimeout('http://192.168.4.1/schedule', {
@@ -392,32 +431,40 @@ export default function App() {
 
 
 
-                    <View style={styles.content}>
-                        <SettingsModal
-                            isVisible={showRtcConfig}
-                            onClose={() => setShowRtcConfig(false)}
-                            onSave={handleSetRtc}
-                        />
-                        {data ? (
-                            <>
-                                <RelayCard
-                                    id="r1" title="Circuito 1 (R1)"
-                                    state={data.v1}
-                                    schedules={(data.prog || []).filter(s => s.id === 'r1')}
-                                    onToggle={handleToggle}
-                                    onSaveAllSchedules={(updated) => handleSaveAllSchedules('r1', updated)}
-                                />
-                                <RelayCard
-                                    id="r2" title="Circuito 2 (R2)"
-                                    state={data.v2}
-                                    schedules={(data.prog || []).filter(s => s.id === 'r2')}
-                                    onToggle={handleToggle}
-                                    onSaveAllSchedules={(updated) => handleSaveAllSchedules('r2', updated)}
-                                />
-                            </>
-                        ) : (
-                            <Text style={styles.loadingText}>Cargando estado...</Text>
-                        )}
+                        <View style={styles.content}>
+                            <SettingsModal
+                                isVisible={showRtcConfig}
+                                onClose={() => setShowRtcConfig(false)}
+                                onSave={handleSetRtc}
+                            />
+                            {data ? (
+                                <>
+                                    {activeCircuits.map((cid) => {
+                                        const vNum = cid.charAt(1);
+                                        const vKey = `v${vNum}`;
+                                        return (
+                                            <RelayCard
+                                                key={cid}
+                                                id={cid}
+                                                title={`Circuito ${vNum} (${cid.toUpperCase()})`}
+                                                state={data[vKey] || 0}
+                                                schedules={(data.prog || []).filter(s => s.id === cid)}
+                                                onToggle={handleToggle}
+                                                onSaveAllSchedules={handleSaveAllSchedules}
+                                                onRemove={handleRemoveCircuit}
+                                            />
+                                        );
+                                    })}
+                                    {activeCircuits.length < 4 && (
+                                        <TouchableOpacity onPress={handleAddCircuit} style={styles.addCircuitBtn}>
+                                            <Ionicons name="add-circle-outline" size={24} color="#38BDF8" />
+                                            <Text style={styles.addCircuitBtnText}>Añadir nuevo circuito</Text>
+                                        </TouchableOpacity>
+                                    )}
+                                </>
+                            ) : (
+                                <Text style={styles.loadingText}>Cargando estado...</Text>
+                            )}
 
                         <View style={styles.footer}>
                             <Text style={styles.versionText}>Smart Irrigation System</Text>
@@ -518,6 +565,9 @@ const styles = StyleSheet.create({
     inputGroup: { flex: 1, marginRight: 8 },
     scheduleLabel: { fontSize: 11, color: '#64748B', fontWeight: '600' },
     timeInput: { backgroundColor: '#17213b', color: '#F8FAFC', fontSize: 14, fontWeight: 'bold', padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#27344f', textAlign: 'center', marginTop: 4 },
+    timeInputPair: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#17213b', borderRadius: 8, borderWidth: 1, borderColor: '#27344f', marginTop: 4, paddingHorizontal: 4 },
+    miniTimeInput: { flex: 1, color: '#F8FAFC', fontSize: 14, fontWeight: 'bold', paddingVertical: 10, textAlign: 'center' },
+    timeSeparator: { color: '#475569', fontWeight: 'bold' },
     miniSaveBtn: { backgroundColor: '#38BDF8', padding: 10, borderRadius: 8, marginLeft: 4, height: 42, justifyContent: 'center' },
     cancelBtn: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8 },
     cancelBtnText: { color: '#94A3B8', fontWeight: '600' },
@@ -598,5 +648,23 @@ const styles = StyleSheet.create({
         color: '#F1F5F9',
         fontSize: 15,
         fontWeight: '600',
+    },
+    addCircuitBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#17213b',
+        padding: 20,
+        borderRadius: 24,
+        borderStyle: 'dashed',
+        borderWidth: 2,
+        borderColor: '#27344f',
+        marginBottom: 20,
+    },
+    addCircuitBtnText: {
+        color: '#38BDF8',
+        fontSize: 15,
+        fontWeight: 'bold',
+        marginLeft: 10,
     },
 });
