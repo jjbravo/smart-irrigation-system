@@ -22,8 +22,8 @@ valves = {
     "r4": machine.Pin(14, machine.Pin.OUT) # D5
 }
 
-# Forzamos apagado inicial
-for v in valves.values(): v.value(0)
+# Forzamos apagado inicial (1 = APAGADO en relés Active Low)
+for v in valves.values(): v.value(1)
 
 # Botones físicos
 btn1 = machine.Pin(12, machine.Pin.IN, machine.Pin.PULL_UP) # D6 -> r1
@@ -94,24 +94,24 @@ while True:
     hora_min_actual = "{:02d}:{:02d}".format(h, m)
 
     # 1. LÓGICA BOTONES FÍSICOS
-    # Botón 1 -> r1
+    # Botón 1 (D6) -> r3
     b1_act = btn1.value()
     if b1_act == 0 and b1_prev == 1:
-        valves["r1"].value(not valves["r1"].value())
+        valves["r3"].value(not valves["r3"].value())
         time.sleep(0.05)
     b1_prev = b1_act
 
-    # Botón 2 -> r2
+    # Botón 2 (D7) -> r1
     b2_act = btn2.value()
     if b2_act == 0 and b2_prev == 1:
-        valves["r2"].value(not valves["r2"].value())
+        valves["r1"].value(not valves["r1"].value())
         time.sleep(0.05)
     b2_prev = b2_act
 
-    # Botón 3 -> r3 (D8 es Pull-down: 1 activo)
+    # Botón 3 -> r2 (D8 es Pull-down: 1 activo)
     b3_act = btn3.value()
     if b3_act == 1 and b3_prev == 0:
-        valves["r3"].value(not valves["r3"].value())
+        valves["r2"].value(not valves["r2"].value())
         time.sleep(0.05)
     b3_prev = b3_act
 
@@ -129,8 +129,8 @@ while True:
         v_id = p.get('id')
         if v_id in valves:
             v_pin = valves[v_id]
-            if hora_min_actual == p["on"]: v_pin.value(1)
-            elif hora_min_actual == p["off"]: v_pin.value(0)
+            if hora_min_actual == p["on"]: v_pin.value(0) # 0 = ENCENDER
+            elif hora_min_actual == p["off"]: v_pin.value(1) # 1 = APAGAR
 
     # 3. SERVIDOR API
     try:
@@ -152,8 +152,9 @@ while True:
         headers = 'HTTP/1.1 200 OK\nContent-Type: application/json\nAccess-Control-Allow-Origin: *\nConnection: close\n\n'
 
         if "GET /status" in request:
-            v_states = {"v"+k[1:]: v.value() for k, v in valves.items()}
-            is_manual = any(v.value() for v in valves.values())
+            # Enviamos el estado lógico (invertido respecto al pin físico)
+            v_states = {"v"+k[1:]: int(not v.value()) for k, v in valves.items()}
+            is_manual = any(not v.value() for v in valves.values())
             resp = {
                 "statusCode": 200,
                 "hora": hora_str,
@@ -165,8 +166,9 @@ while True:
         elif "POST /manual" in request:
             v_id = data_j.get('id')
             if v_id in valves:
-                valves[v_id].value(int(data_j['val']))
-                resp = {"statusCode": 200, "state": valves[v_id].value()}
+                # Invertimos el valor recibido de la App para el relé físico
+                valves[v_id].value(int(not data_j['val']))
+                resp = {"statusCode": 200, "state": int(not valves[v_id].value())}
 
         elif "POST /setrtc" in request:
             nw_t = bytes([dec_to_bcd(data_j['s']) & 0x7F, dec_to_bcd(data_j['m']), dec_to_bcd(data_j['h'])])
