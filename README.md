@@ -1,97 +1,68 @@
-# Welcome to your Expo app 👋
+# 🌿 Smart Irrigation System (NodeMCU + Android)
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Este proyecto es una solución integral de IoT para la gestión automatizada de sistemas de riego, combinando la potencia de un **ESP8266 (NodeMCU)** con una aplicación móvil moderna desarrollada en **React Native / Expo**.
 
-## Get started
+![Sistema de Riego](assets/images/readme/controlRiego.png)
 
-1. Install dependencies
+## 🚀 Características Principales
 
-   ```bash
-   npm install
-   ```
+- **Control de 4 Válvulas**: Gestión independiente de hasta 4 circuitos de riego mediante relés.
+- **Modos de Operación**:
+  - **Manual**: Botones físicos en el dispositivo y control remoto desde la App.
+  - **Automático**: Programación de múltiples eventos horarios guardados permanentemente.
+- **Precisión Horaria**: Integración con un módulo RTC (Real Time Clock) para mantener la hora incluso sin suministro eléctrico.
+- **Interfaz Premium**: App móvil con modo oscuro, animaciones fluidas y monitorización en tiempo real.
+- **Punto de Acceso Propio**: No requiere internet; la placa genera su propia red WiFi para el control local.
 
-2. Start the app
+## 🛠️ Arquitectura de Hardware
 
-   ```bash
-   npx expo start
-   ```
+![Hardware NodeMCU](assets/images/readme/nodeMCU.png)
 
-In the output, you'll find options to open the app in a
+- **Controlador**: NodeMCU (ESP8266).
+- **Entradas**: 4 botones físicos (usando GPIOs específicos y el puerto analógico A0).
+- **Reloj**: DS3231/DS1307 vía I2C.
+- **Estabilidad**: Gestión de ahorro de energía WiFi desactivada para evitar desconexiones inesperadas.
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+## 🔌 Diagrama de Conexiones (Pinout)
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```mermaid
+graph TD
+    subgraph NodeMCU_ESP8266
+        D0[D0 - GPIO 16] --> R1[Relé 1 - Válvula 1]
+        D3[D3 - GPIO 0]  --> R2[Relé 2 - Válvula 2]
+        D4[D4 - GPIO 2]  --> R3[Relé 3 - Válvula 3]
+        D5[D5 - GPIO 14] --> R4[Relé 4 - Válvula 4]
+        
+        D1[D1 - GPIO 5] --- SCL[RTC SCL]
+        D2[D2 - GPIO 4] --- SDA[RTC SDA]
+        
+        D6[D6 - GPIO 12] --- B1[Botón 1 -> V3]
+        D7[D7 - GPIO 13] --- B2[Botón 2 -> V1]
+        D8[D8 - GPIO 15] --- B3[Botón 3 -> V2]
+        A0[A0 - Analog]  --- B4[Botón 4 -> V4]
+    end
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## 📱 Aplicación Móvil
 
-## Learn more
+![App Screenshot](assets/images/readme/app.jpg)
 
-To learn more about developing your project with Expo, look at the following resources:
+La aplicación permite:
+- Visualizar el estado de cada válvula en tiempo real.
+- Sincronizar el reloj de la placa con el del teléfono.
+- Configurar encendidos y apagados programados con persistencia en la Flash del NodeMCU.
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+### 📥 Descarga la App
+Puedes descargar el instalador (.APK) para Android directamente aquí:
+> [!IMPORTANT]
+> [**Descargar Smart Irrigation APK**](https://drive.google.com/file/d/1eLS3zvxFBGvCx_X4F9KoD0gAfnBQu_8u/view?usp=sharing)
 
-## Join the community
+## 📖 Instrucciones de Uso
 
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+1. **Conexión**: Conéctate a la red WiFi llamada `RIEGO_INTELIGENTE` desde tu teléfono.
+2. **Abrir App**: Inicia la aplicación "Control de Riego".
+3. **Sincronizar**: Ve a Ajustes y presiona "Hora Actual" para sincronizar el sistema.
+4. **Programar**: Añade horarios de riego para cada circuito; se guardarán automáticamente en la placa.
 
 ---
-
-# 🔧 Firmware NodeMCU (MicroPython)
-
-Esta sección detalla los pasos para recuperar y programar la placa NodeMCU ESP8266.
-
-## 📦 Instalación de Herramientas
-
-```bash
-# Instalación/Actualización de esptool (Para flasheo profundo)
-python3 -m pip install esptool --user --upgrade
-
-# Instalación de ampy (Para subir archivos .py individuales)
-python3 -m pip install adafruit-ampy --user
-
-# Instalación de mpremote (Recomendado versión 1.25.0)
-python3 -m pip install mpremote==1.25.0 --user
-```
-
-## 🛠️ Proceso de Recuperación y Flasheo
-
-Si la placa no responde o entra en bucle de reinicio:
-
-1. **Borrado de Memoria (Crucial):**
-   ```bash
-   ~/.local/bin/esptool.py --port /dev/ttyUSB0 erase_flash
-   ```
-
-2. **Flasheo de MicroPython (Estable):**
-   Se recomienda usar la versión **v1.27.0** con modo **`dout`** a **57600 baudios**.
-   ```bash
-   ~/.local/bin/esptool.py --port /dev/ttyUSB0 --chip esp8266 --baud 57600 write_flash --flash_mode dout --flash_size detect 0x0 ../ESP8266_GENERIC-20251209-v1.27.0.bin
-   ```
-
-## 🚀 Subida de Código
-
-Asegúrate de que Thonny esté cerrado antes de ejecutar:
-
-```bash
-# Usando ampy
-~/.local/bin/ampy --port /dev/ttyUSB0 put main.py
-
-# Usando mpremote
-~/.local/bin/mpremote connect /dev/ttyUSB0 cp main.py :main.py
-```
-
+*Desarrollado para la gestión eficiente del agua y automatización doméstica.*

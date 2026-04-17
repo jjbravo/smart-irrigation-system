@@ -77,6 +77,8 @@ def obtener_hora_rtc():
 ap = network.WLAN(network.AP_IF)
 ap.active(True)
 ap.config(essid="RIEGO_INTELIGENTE", authmode=network.AUTH_OPEN)
+try: ap.config(pm=network.WLAN.PM_NONE) # Desactivar ahorro de energía
+except: pass
 ap.ifconfig(('192.168.4.1', '255.255.255.0', '192.168.4.1', '8.8.8.8'))
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -189,4 +191,4 @@ while True:
     except OSError: pass
     
     gc.collect()
-    time.sleep(0.01)
+    time.sleep(0.05) # Mayor estabilidad para el WiFi
