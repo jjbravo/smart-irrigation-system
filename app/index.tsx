@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Animated, ImageBackground, KeyboardAvoidingView, LayoutAnimation, Linking, Modal, Platform, RefreshControl, SafeAreaView, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, UIManager, View } from 'react-native';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -10,6 +10,7 @@ type ScheduleEntry = {
     id: string;
     on: string;
     off: string;
+    days: number[]; // 1=Lunes, 7=Domingo
 };
 
 type SystemData = {
@@ -37,6 +38,7 @@ const RelayCard = ({ id, title, state, schedules, onToggle, onSaveAllSchedules, 
     const [onM, setOnM] = useState('00');
     const [offH, setOffH] = useState('06');
     const [offM, setOffM] = useState('10');
+    const [selectedDays, setSelectedDays] = useState<number[]>([1, 2, 3, 4, 5, 6, 7]);
     const [saving, setSaving] = useState(false);
 
     const handleSave = async () => {
@@ -51,9 +53,9 @@ const RelayCard = ({ id, title, state, schedules, onToggle, onSaveAllSchedules, 
         let newList;
         if (editingIdx !== null) {
             newList = [...schedules];
-            newList[editingIdx] = { id, on: fullOn, off: fullOff };
+            newList[editingIdx] = { id, on: fullOn, off: fullOff, days: selectedDays };
         } else {
-            newList = [...schedules, { id, on: fullOn, off: fullOff }];
+            newList = [...schedules, { id, on: fullOn, off: fullOff, days: selectedDays }];
         }
 
         const success = await onSaveAllSchedules(id, newList);
@@ -63,6 +65,7 @@ const RelayCard = ({ id, title, state, schedules, onToggle, onSaveAllSchedules, 
             setEditingIdx(null);
             setOnH('06'); setOnM('00');
             setOffH('06'); setOffM('10');
+            setSelectedDays([1, 2, 3, 4, 5, 6, 7]);
         }
     };
 
@@ -72,13 +75,23 @@ const RelayCard = ({ id, title, state, schedules, onToggle, onSaveAllSchedules, 
         const [fh, fm] = item.off.split(':');
         setOnH(oh); setOnM(om);
         setOffH(fh); setOffM(fm);
+        setSelectedDays(item.days || [1, 2, 3, 4, 5, 6, 7]);
         setEditingIdx(index);
         setIsAdding(true);
+    };
+
+    const toggleDay = (day: number) => {
+        if (selectedDays.includes(day)) {
+            setSelectedDays(selectedDays.filter(d => d !== day));
+        } else {
+            setSelectedDays([...selectedDays, day].sort());
+        }
     };
 
     const startAdd = () => {
         setOnH('06'); setOnM('00');
         setOffH('06'); setOffM('10');
+        setSelectedDays([1, 2, 3, 4, 5, 6, 7]);
         setEditingIdx(null);
         setIsAdding(!isAdding);
     };
@@ -145,6 +158,21 @@ const RelayCard = ({ id, title, state, schedules, onToggle, onSaveAllSchedules, 
                                 <Ionicons name={saving ? "sync-outline" : "checkmark"} size={20} color="#0b122b" />
                             </TouchableOpacity>
                         </View>
+                        <View style={styles.daySelectionRow}>
+                            {['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sa', 'Do'].map((label, i) => {
+                                const dayNum = i + 1;
+                                const isSel = selectedDays.includes(dayNum);
+                                return (
+                                    <TouchableOpacity
+                                        key={i}
+                                        onPress={() => toggleDay(dayNum)}
+                                        style={[styles.dayCircle, isSel && styles.dayCircleActive]}
+                                    >
+                                        <Text style={[styles.dayCircleText, isSel && styles.dayCircleTextActive]}>{label}</Text>
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </View>
                     </View>
                 )}
 
@@ -156,7 +184,12 @@ const RelayCard = ({ id, title, state, schedules, onToggle, onSaveAllSchedules, 
                             <View key={idx} style={[styles.scheduleListItem, editingIdx === idx && { borderColor: '#38BDF8', borderWidth: 1 }]}>
                                 <View style={styles.scheduleRowInfo}>
                                     <Ionicons name="time-outline" size={16} color="#38BDF8" />
-                                    <Text style={styles.scheduleTimeText}>{item.on} - {item.off}</Text>
+                                    <View>
+                                        <Text style={styles.scheduleTimeText}>{item.on} - {item.off}</Text>
+                                        <Text style={styles.scheduleDaysText}>
+                                            {(item.days || []).map(d => ['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sa', 'Do'][d - 1]).join(' ● ')}
+                                        </Text>
+                                    </View>
                                 </View>
                                 <View style={{ flexDirection: 'row', gap: 12 }}>
                                     <TouchableOpacity onPress={() => startEdit(idx)} style={styles.deleteBtn}>
@@ -175,11 +208,15 @@ const RelayCard = ({ id, title, state, schedules, onToggle, onSaveAllSchedules, 
     );
 }
 
-const SettingsModal = ({ isVisible, onClose, onSave }: { isVisible: boolean, onClose: () => void, onSave: (h: number, m: number, s: number) => Promise<boolean> }) => {
-    const d = new Date();
-    const [h, setH] = useState(d.getHours().toString().padStart(2, '0'));
-    const [m, setM] = useState(d.getMinutes().toString().padStart(2, '0'));
-    const [s, setS] = useState(d.getSeconds().toString().padStart(2, '0'));
+const SettingsModal = ({ isVisible, onClose, onSave }: { isVisible: boolean, onClose: () => void, onSave: (h: number, m: number, s: number, d: number) => Promise<boolean> }) => {
+    const date = new Date();
+    // JS days: 0=Dom, 1=Lun... -> 1=Lun, 7=Dom
+    const getWd = (d: number) => d === 0 ? 7 : d;
+
+    const [h, setH] = useState(date.getHours().toString().padStart(2, '0'));
+    const [m, setM] = useState(date.getMinutes().toString().padStart(2, '0'));
+    const [s, setS] = useState(date.getSeconds().toString().padStart(2, '0'));
+    const [wd, setWd] = useState(getWd(date.getDay()).toString());
     const [saving, setSaving] = useState(false);
 
     const handleSyncPhone = () => {
@@ -187,11 +224,12 @@ const SettingsModal = ({ isVisible, onClose, onSave }: { isVisible: boolean, onC
         setH(now.getHours().toString().padStart(2, '0'));
         setM(now.getMinutes().toString().padStart(2, '0'));
         setS(now.getSeconds().toString().padStart(2, '0'));
+        setWd(getWd(now.getDay()).toString());
     };
 
     const handleSave = async () => {
         setSaving(true);
-        await onSave(parseInt(h) || 0, parseInt(m) || 0, parseInt(s) || 0);
+        await onSave(parseInt(h) || 0, parseInt(m) || 0, parseInt(s) || 0, parseInt(wd) || 1);
         setSaving(false);
     };
 
@@ -219,6 +257,10 @@ const SettingsModal = ({ isVisible, onClose, onSave }: { isVisible: boolean, onC
                         <View style={styles.inputGroup}>
                             <Text style={styles.scheduleLabel}>Seg</Text>
                             <TextInput style={styles.timeInput} value={s} onChangeText={setS} keyboardType="numeric" maxLength={2} />
+                        </View>
+                        <View style={styles.inputGroup}>
+                            <Text style={styles.scheduleLabel}>Dia (1-7)</Text>
+                            <TextInput style={styles.timeInput} value={wd} onChangeText={setWd} keyboardType="numeric" maxLength={1} />
                         </View>
                     </View>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 12, marginBottom: 24 }}>
@@ -373,11 +415,11 @@ export default function App() {
         }
     };
 
-    const handleSetRtc = async (h: number, m: number, s: number) => {
+    const handleSetRtc = async (h: number, m: number, s: number, d: number) => {
         try {
             await fetchWithTimeout('http://192.168.4.1/setrtc', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ h, m, s })
+                body: JSON.stringify({ h, m, s, d })
             });
             triggerSuccessToast('Reloj sincronizado');
             await fetchData();
@@ -431,40 +473,40 @@ export default function App() {
 
 
 
-                        <View style={styles.content}>
-                            <SettingsModal
-                                isVisible={showRtcConfig}
-                                onClose={() => setShowRtcConfig(false)}
-                                onSave={handleSetRtc}
-                            />
-                            {data ? (
-                                <>
-                                    {activeCircuits.map((cid) => {
-                                        const vNum = cid.charAt(1);
-                                        const vKey = `v${vNum}`;
-                                        return (
-                                            <RelayCard
-                                                key={cid}
-                                                id={cid}
-                                                title={`Circuito ${vNum} (${cid.toUpperCase()})`}
-                                                state={data[vKey] || 0}
-                                                schedules={(data.prog || []).filter(s => s.id === cid)}
-                                                onToggle={handleToggle}
-                                                onSaveAllSchedules={handleSaveAllSchedules}
-                                                onRemove={handleRemoveCircuit}
-                                            />
-                                        );
-                                    })}
-                                    {activeCircuits.length < 4 && (
-                                        <TouchableOpacity onPress={handleAddCircuit} style={styles.addCircuitBtn}>
-                                            <Ionicons name="add-circle-outline" size={24} color="#38BDF8" />
-                                            <Text style={styles.addCircuitBtnText}>Añadir nuevo circuito</Text>
-                                        </TouchableOpacity>
-                                    )}
-                                </>
-                            ) : (
-                                <Text style={styles.loadingText}>Cargando estado...</Text>
-                            )}
+                    <View style={styles.content}>
+                        <SettingsModal
+                            isVisible={showRtcConfig}
+                            onClose={() => setShowRtcConfig(false)}
+                            onSave={handleSetRtc}
+                        />
+                        {data ? (
+                            <>
+                                {activeCircuits.map((cid) => {
+                                    const vNum = cid.charAt(1);
+                                    const vKey = `v${vNum}`;
+                                    return (
+                                        <RelayCard
+                                            key={cid}
+                                            id={cid}
+                                            title={`Circuito ${vNum} (${cid.toUpperCase()})`}
+                                            state={data[vKey] || 0}
+                                            schedules={(data.prog || []).filter(s => s.id === cid)}
+                                            onToggle={handleToggle}
+                                            onSaveAllSchedules={handleSaveAllSchedules}
+                                            onRemove={handleRemoveCircuit}
+                                        />
+                                    );
+                                })}
+                                {activeCircuits.length < 4 && (
+                                    <TouchableOpacity onPress={handleAddCircuit} style={styles.addCircuitBtn}>
+                                        <Ionicons name="add-circle-outline" size={24} color="#38BDF8" />
+                                        <Text style={styles.addCircuitBtnText}>Añadir nuevo circuito</Text>
+                                    </TouchableOpacity>
+                                )}
+                            </>
+                        ) : (
+                            <Text style={styles.loadingText}>Cargando estado...</Text>
+                        )}
 
                         <View style={styles.footer}>
                             <Text style={styles.versionText}>Smart Irrigation System</Text>
@@ -599,6 +641,12 @@ const styles = StyleSheet.create({
         fontSize: 10,
         marginTop: 4,
     },
+    daySelectionRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 16, paddingHorizontal: 4 },
+    dayCircle: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#17213b', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#27344f' },
+    dayCircleActive: { backgroundColor: '#38BDF8', borderColor: '#38BDF8' },
+    dayCircleText: { color: '#94A3B8', fontSize: 12, fontWeight: '700' },
+    dayCircleTextActive: { color: '#0b122b' },
+    scheduleDaysText: { color: '#64748B', fontSize: 11, fontWeight: '600', marginTop: 2 },
     modalOverlay: {
         flex: 1,
         backgroundColor: 'rgba(11, 18, 43, 0.85)',

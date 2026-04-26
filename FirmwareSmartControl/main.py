@@ -38,11 +38,24 @@ b3_prev = 0 # D8 es pull-down (Inicia en 0)
 ADDR_RTC = 0x68
 FILE_NAME = "riego_config.json"
 
+# Autodetectar RTC físico
+rtc_present = False
+try:
+    if ADDR_RTC in i2c.scan():
+        rtc_present = True
+        print("RTC físico detectado en 0x68")
+    else:
+        print("RTC físico NO detectado. Usando reloj interno (Software Fallback)")
+except: pass
+
 # Variables de control
-# Ahora horarios es una LISTA de dicts: [{"id": "r1", "on": "HH:MM", "off": "HH:MM"}, ...]
+# Ahora horarios es una LISTA de dicts: [{"id": "r1", "on": "HH:MM", "off": "HH:MM", "days": [1,2,3...]}, ...]
+# days: 1=Lunes, 7=Domingo
 horarios = [
-    {"id": "r1", "on": "06:00", "off": "06:10"},
-    {"id": "r2", "on": "18:00", "off": "18:10"}
+    {"id": "r1", "on": "06:00", "off": "06:10", "days": [1, 2, 3, 4, 5, 6, 7]},
+    {"id": "r2", "on": "18:00", "off": "18:10", "days": [1, 2, 3, 4, 5, 6, 7]},
+    {"id": "r3", "on": "18:00", "off": "18:10", "days": []},
+    {"id": "r4", "on": "18:00", "off": "18:10", "days": []}
 ]
 
 
@@ -59,19 +72,27 @@ def cargar_config():
     except: pass
 
 cargar_config()
+print("Horarios programados:", horarios)
 
 # --- FUNCIONES RTC ---
 def bcd_to_dec(bcd): return (bcd & 0x0F) + ((bcd >> 4) * 10)
 def dec_to_bcd(dec): return (dec // 10 << 4) + (dec % 10)
 
 def obtener_hora_rtc():
-    try:
-        d = list(i2c.readfrom_mem(ADDR_RTC, 0x00, 3))
-        s = bcd_to_dec(d[0] & 0x7F)
-        m = bcd_to_dec(d[1])
-        h = bcd_to_dec(d[2] & 0x3F)
-        return h, m, s
-    except: return 0, 0, 0
+    if rtc_present:
+        try:
+            d = list(i2c.readfrom_mem(ADDR_RTC, 0x00, 4))
+            s = bcd_to_dec(d[0] & 0x7F)
+            m = bcd_to_dec(d[1])
+            h = bcd_to_dec(d[2] & 0x3F)
+            wd = bcd_to_dec(d[3] & 0x07) # Day of Week (1-7)
+            return h, m, s, wd
+        except: pass
+    
+    # Reloj de software / Fallback
+    # localtime -> (Y, M, D, H, M, S, WD, YD). WD: 0=Mon...6=Sun
+    t = time.localtime()
+    return t[3], t[4], t[5], t[6] + 1
 
 # --- CONFIGURACIÓN RED ---
 ap = network.WLAN(network.AP_IF)
@@ -91,8 +112,8 @@ print("Servidor Riego Multi-Evento OK")
 while True:
     # Eliminado parpadeo LED (Indica ejecución)
 
-    h, m, seg = obtener_hora_rtc()
-    hora_str = "{:02d}:{:02d}:{:02d}".format(h, m, seg)
+    h, m, seg, wd = obtener_hora_rtc()
+    hora_str = "{:02d}:{:02d}:{:02d} (Dia: {:d})".format(h, m, seg, wd)
     hora_min_actual = "{:02d}:{:02d}".format(h, m)
 
     # 1. LÓGICA BOTONES FÍSICOS
@@ -131,8 +152,10 @@ while True:
         v_id = p.get('id')
         if v_id in valves:
             v_pin = valves[v_id]
-            if hora_min_actual == p["on"]: v_pin.value(0) # 0 = ENCENDER
-            elif hora_min_actual == p["off"]: v_pin.value(1) # 1 = APAGAR
+            p_days = p.get('days', [1,2,3,4,5,6,7]) # Default todos los días si no existe
+            if wd in p_days:
+                if hora_min_actual == p["on"]: v_pin.value(0) # 0 = ENCENDER
+                elif hora_min_actual == p["off"]: v_pin.value(1) # 1 = APAGAR
 
     # 3. SERVIDOR API
     try:
@@ -160,6 +183,7 @@ while True:
             resp = {
                 "statusCode": 200,
                 "hora": hora_str,
+                "wd": wd,
                 "manual": is_manual,
                 "prog": horarios
             }
@@ -173,8 +197,25 @@ while True:
                 resp = {"statusCode": 200, "state": int(not valves[v_id].value())}
 
         elif "POST /setrtc" in request:
-            nw_t = bytes([dec_to_bcd(data_j['s']) & 0x7F, dec_to_bcd(data_j['m']), dec_to_bcd(data_j['h'])])
-            i2c.writeto_mem(ADDR_RTC, 0x00, nw_t)
+            wd_val = data_j.get('d', 1)
+            if rtc_present:
+                try:
+                    nw_t = bytes([
+                        dec_to_bcd(data_j['s']) & 0x7F, 
+                        dec_to_bcd(data_j['m']), 
+                        dec_to_bcd(data_j['h']),
+                        dec_to_bcd(wd_val) & 0x07
+                    ])
+                    i2c.writeto_mem(ADDR_RTC, 0x00, nw_t)
+                except: pass
+            
+            # Siempre sincronizar reloj interno para consistencia
+            try:
+                # ESP8266: (year, month, day, weekday, hours, minutes, seconds, subseconds)
+                # Weekday: 0=Mon, 6=Sun (App envía 1-7, ajustamos a 0-6)
+                machine.RTC().datetime((2026, 4, 1, wd_val-1, data_j['h'], data_j['m'], data_j['s'], 0))
+            except: pass
+            
             resp = {"statusCode": 200, "message": "Hora sincronizada"}
 
         elif "POST /schedule" in request:
