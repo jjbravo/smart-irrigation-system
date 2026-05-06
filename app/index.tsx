@@ -358,17 +358,20 @@ export default function App() {
             setError(null);
         } catch (err: any) {
             setError(err?.name === 'AbortError' ? 'Timeout en conexión.' : 'Error de red.');
-            setData({
-                hora: '14:00:00',
-                manual: false,
-                prog: [
-                    { id: 'r1', on: '06:00', off: '06:10' },
-                    { id: 'r2', on: '18:00', off: '18:10' },
-                    { id: 'r3', on: '12:00', off: '12:10' },
-                    { id: 'r4', on: '20:00', off: '20:10' }
-                ],
-                v1: 0, v2: 0, v3: 0, v4: 0
-            });
+            // Only update data with a fallback if we don't have any existing state to prevent visual resets
+            if (!data) {
+                setData({
+                    hora: '14:00:00',
+                    manual: false,
+                    prog: [
+                        { id: 'r1', on: '06:00', off: '06:10', days: [1, 2, 3, 4, 5, 6, 7] },
+                        { id: 'r2', on: '18:00', off: '18:10', days: [1, 2, 3, 4, 5, 6, 7] },
+                        { id: 'r3', on: '12:00', off: '12:10', days: [] },
+                        { id: 'r4', on: '20:00', off: '20:10', days: [] }
+                    ],
+                    v1: 0, v2: 0, v3: 0, v4: 0
+                });
+            }
         }
     };
 
@@ -388,6 +391,7 @@ export default function App() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ id, val: newVal })
             });
+            await fetchData();
         } catch (err) {
             if (data) setData({ ...data, [vKey]: currentState });
         }
@@ -433,7 +437,7 @@ export default function App() {
 
     useEffect(() => {
         fetchData();
-        const interval = setInterval(fetchData, 1000);
+        const interval = setInterval(fetchData, 5000);
         return () => clearInterval(interval);
     }, []);
 
