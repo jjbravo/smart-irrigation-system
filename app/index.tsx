@@ -208,7 +208,7 @@ const RelayCard = ({ id, title, state, schedules, onToggle, onSaveAllSchedules, 
     );
 }
 
-const SettingsModal = ({ isVisible, onClose, onSave }: { isVisible: boolean, onClose: () => void, onSave: (h: number, m: number, s: number, d: number) => Promise<boolean> }) => {
+const SettingsModal = ({ isVisible, onClose, onSave, showDebug, onToggleDebug }: { isVisible: boolean, onClose: () => void, onSave: (h: number, m: number, s: number, d: number) => Promise<boolean>, showDebug: boolean, onToggleDebug: (val: boolean) => void }) => {
     const date = new Date();
     // JS days: 0=Dom, 1=Lun... -> 1=Lun, 7=Dom
     const getWd = (d: number) => d === 0 ? 7 : d;
@@ -273,7 +273,21 @@ const SettingsModal = ({ isVisible, onClose, onSave }: { isVisible: boolean, onC
                     </View>
 
                     <View style={{ borderTopWidth: 1, borderTopColor: '#27344f', paddingTop: 20 }}>
-                        <Text style={styles.modalSubtitle}>Configurar Wifi</Text>
+                        <Text style={styles.modalSubtitle}>Opciones Extendidas</Text>
+
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                <Ionicons name="terminal" size={20} color="#38BDF8" style={{ marginRight: 12 }} />
+                                <Text style={styles.wifiShortcutText}>Consola de depuración</Text>
+                            </View>
+                            <Switch
+                                value={showDebug}
+                                onValueChange={onToggleDebug}
+                                trackColor={{ false: '#334155', true: '#059669' }}
+                                thumbColor={'#F8FAFC'}
+                            />
+                        </View>
+
                         <TouchableOpacity
                             onPress={() => Linking.sendIntent('android.settings.WIFI_SETTINGS')}
                             style={[styles.wifiShortcutBtn]}
@@ -296,7 +310,15 @@ export default function App() {
     const fadeAnim = useRef(new Animated.Value(0)).current;
     const [refreshing, setRefreshing] = useState(false);
     const [showRtcConfig, setShowRtcConfig] = useState(false);
+    const [showDebug, setShowDebug] = useState(false);
     const [activeCircuits, setActiveCircuits] = useState<string[]>(['r1', 'r2']);
+
+    const [logs, setLogs] = useState<{ id: string, time: string, msg: string, type: 'info' | 'error' | 'success' }[]>([]);
+
+    const addLog = (msg: string, type: 'info' | 'error' | 'success' = 'info') => {
+        const time = new Date().toLocaleTimeString();
+        setLogs(prev => [{ id: Math.random().toString(), time, msg, type }, ...prev].slice(0, 50));
+    };
 
     const handleAddCircuit = () => {
         if (activeCircuits.length < 4) {
@@ -343,10 +365,20 @@ export default function App() {
         });
     };
 
-    const fetchWithTimeout = (url: string, options: RequestInit = {}, timeoutMs = 6000): Promise<Response> => {
+    const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeoutMs = 6000): Promise<Response> => {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), timeoutMs);
-        return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timer));
+        if (options.method && options.method !== 'GET') {
+            addLog(`>> ${options.method} ${url} ${options.body ? String(options.body) : ''}`, 'info');
+        }
+        try {
+            const res = await fetch(url, { ...options, signal: controller.signal });
+            clearTimeout(timer);
+            return res;
+        } catch (err: any) {
+            clearTimeout(timer);
+            throw err;
+        }
     };
 
     const fetchData = async () => {
@@ -421,15 +453,22 @@ export default function App() {
 
     const handleSetRtc = async (h: number, m: number, s: number, d: number) => {
         try {
-            await fetchWithTimeout('http://192.168.4.1/setrtc', {
+            const bodyStr = JSON.stringify({ h, m, s, d });
+            const response = await fetchWithTimeout('http://192.168.4.1/setrtc', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ h, m, s, d })
+                body: bodyStr
             });
+            const textResponse = await response.text();
+            addLog(`<< HTTP ${response.status} | ${textResponse}`, response.ok ? 'success' : 'error');
+
+            if (!response.ok) throw new Error(`HTTP ${response.status}: ${textResponse}`);
+
             triggerSuccessToast('Reloj sincronizado');
             await fetchData();
             setShowRtcConfig(false);
             return true;
         } catch (err: any) {
+            addLog(`!! ERROR RTC: ${err.message}`, 'error');
             setError('Error RTC');
             return false;
         }
@@ -467,7 +506,7 @@ export default function App() {
                             </View>
                             <View style={styles.rtcContainer}>
                                 <Text style={styles.rtcLabel}>HORA LOCAL</Text>
-                                <Text style={styles.rtcValue}>{data?.hora || '--:--:--'}</Text>
+                                <Text style={styles.rtcValue}>{data?.hora ? data.hora.substring(0, 5) : '--:--'}</Text>
                                 {data?.manual && <Text style={styles.activeLabel}>SISTEMA ACTIVO</Text>}
                             </View>
                         </View>
@@ -482,6 +521,8 @@ export default function App() {
                             isVisible={showRtcConfig}
                             onClose={() => setShowRtcConfig(false)}
                             onSave={handleSetRtc}
+                            showDebug={showDebug}
+                            onToggleDebug={setShowDebug}
                         />
                         {data ? (
                             <>
@@ -510,6 +551,27 @@ export default function App() {
                             </>
                         ) : (
                             <Text style={styles.loadingText}>Cargando estado...</Text>
+                        )}
+
+                        {showDebug && (
+                            <View style={styles.consoleContainer}>
+                                <Text style={styles.consoleTitle}>Consola de Depuración</Text>
+                                <ScrollView style={styles.consoleScroll} nestedScrollEnabled>
+                                    {logs.length === 0 ? (
+                                        <Text style={styles.consoleText}>Esperando peticiones...</Text>
+                                    ) : (
+                                        logs.map(log => (
+                                            <Text key={log.id} style={[
+                                                styles.consoleText,
+                                                log.type === 'error' && { color: '#FCA5A5' },
+                                                log.type === 'success' && { color: '#6EE7B7' }
+                                            ]}>
+                                                [{log.time}] {log.msg}
+                                            </Text>
+                                        ))
+                                    )}
+                                </ScrollView>
+                            </View>
                         )}
 
                         <View style={styles.footer}>
@@ -567,8 +629,8 @@ const styles = StyleSheet.create({
         borderRadius: 12,
         borderWidth: 1,
         borderColor: '#7f1d1d',
-        zIndex: 5000,
-        elevation: 10,
+        zIndex: 99999,
+        elevation: 9999,
     },
     errorText: { color: '#FCA5A5', marginLeft: 12, flex: 1, fontSize: 13 },
     successBox: {
@@ -583,8 +645,8 @@ const styles = StyleSheet.create({
         borderRadius: 12,
         borderWidth: 1,
         borderColor: '#064e3b',
-        zIndex: 5000,
-        elevation: 10,
+        zIndex: 99999,
+        elevation: 9999,
     },
     successText: { color: '#6EE7B7', marginLeft: 12, flex: 1, fontSize: 13 },
     content: { padding: 24 },
@@ -718,5 +780,33 @@ const styles = StyleSheet.create({
         fontSize: 15,
         fontWeight: 'bold',
         marginLeft: 10,
+    },
+    consoleContainer: {
+        marginTop: 20,
+        backgroundColor: '#000',
+        borderRadius: 12,
+        padding: 12,
+        height: 180,
+        borderWidth: 1,
+        borderColor: '#334155',
+    },
+    consoleTitle: {
+        color: '#94A3B8',
+        fontSize: 12,
+        fontWeight: 'bold',
+        marginBottom: 8,
+        borderBottomWidth: 1,
+        borderBottomColor: '#334155',
+        paddingBottom: 4,
+        textTransform: 'uppercase',
+    },
+    consoleScroll: {
+        flex: 1,
+    },
+    consoleText: {
+        color: '#E2E8F0',
+        fontSize: 11,
+        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+        marginBottom: 4,
     },
 });
