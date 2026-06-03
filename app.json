@@ -16,7 +16,8 @@
         "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/images/android-icon-foreground.png"
       },
-      "package": "com.anonymous.AppScheduleAndroid"
+      "package": "com.anonymous.AppScheduleAndroid",
+      "usesCleartextTraffic": true
     },
     "plugins": [
       "expo-router",
