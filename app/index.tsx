@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Animated, ImageBackground, KeyboardAvoidingView, LayoutAnimation, Linking, Modal, Platform, RefreshControl, SafeAreaView, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, UIManager, View } from 'react-native';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -10,6 +10,7 @@ type ScheduleEntry = {
     id: string;
     on: string;
     off: string;
+    days: number[]; // 1=Lunes, 7=Domingo
 };
 
 type SystemData = {
@@ -37,6 +38,7 @@ const RelayCard = ({ id, title, state, schedules, onToggle, onSaveAllSchedules, 
     const [onM, setOnM] = useState('00');
     const [offH, setOffH] = useState('06');
     const [offM, setOffM] = useState('10');
+    const [selectedDays, setSelectedDays] = useState<number[]>([1, 2, 3, 4, 5, 6, 7]);
     const [saving, setSaving] = useState(false);
 
     const handleSave = async () => {
@@ -51,9 +53,9 @@ const RelayCard = ({ id, title, state, schedules, onToggle, onSaveAllSchedules, 
         let newList;
         if (editingIdx !== null) {
             newList = [...schedules];
-            newList[editingIdx] = { id, on: fullOn, off: fullOff };
+            newList[editingIdx] = { id, on: fullOn, off: fullOff, days: selectedDays };
         } else {
-            newList = [...schedules, { id, on: fullOn, off: fullOff }];
+            newList = [...schedules, { id, on: fullOn, off: fullOff, days: selectedDays }];
         }
 
         const success = await onSaveAllSchedules(id, newList);
@@ -63,6 +65,7 @@ const RelayCard = ({ id, title, state, schedules, onToggle, onSaveAllSchedules, 
             setEditingIdx(null);
             setOnH('06'); setOnM('00');
             setOffH('06'); setOffM('10');
+            setSelectedDays([1, 2, 3, 4, 5, 6, 7]);
         }
     };
 
@@ -72,13 +75,23 @@ const RelayCard = ({ id, title, state, schedules, onToggle, onSaveAllSchedules, 
         const [fh, fm] = item.off.split(':');
         setOnH(oh); setOnM(om);
         setOffH(fh); setOffM(fm);
+        setSelectedDays(item.days || [1, 2, 3, 4, 5, 6, 7]);
         setEditingIdx(index);
         setIsAdding(true);
+    };
+
+    const toggleDay = (day: number) => {
+        if (selectedDays.includes(day)) {
+            setSelectedDays(selectedDays.filter(d => d !== day));
+        } else {
+            setSelectedDays([...selectedDays, day].sort());
+        }
     };
 
     const startAdd = () => {
         setOnH('06'); setOnM('00');
         setOffH('06'); setOffM('10');
+        setSelectedDays([1, 2, 3, 4, 5, 6, 7]);
         setEditingIdx(null);
         setIsAdding(!isAdding);
     };
@@ -145,6 +158,21 @@ const RelayCard = ({ id, title, state, schedules, onToggle, onSaveAllSchedules, 
                                 <Ionicons name={saving ? "sync-outline" : "checkmark"} size={20} color="#0b122b" />
                             </TouchableOpacity>
                         </View>
+                        <View style={styles.daySelectionRow}>
+                            {['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sa', 'Do'].map((label, i) => {
+                                const dayNum = i + 1;
+                                const isSel = selectedDays.includes(dayNum);
+                                return (
+                                    <TouchableOpacity
+                                        key={i}
+                                        onPress={() => toggleDay(dayNum)}
+                                        style={[styles.dayCircle, isSel && styles.dayCircleActive]}
+                                    >
+                                        <Text style={[styles.dayCircleText, isSel && styles.dayCircleTextActive]}>{label}</Text>
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </View>
                     </View>
                 )}
 
@@ -156,7 +184,12 @@ const RelayCard = ({ id, title, state, schedules, onToggle, onSaveAllSchedules, 
                             <View key={idx} style={[styles.scheduleListItem, editingIdx === idx && { borderColor: '#38BDF8', borderWidth: 1 }]}>
                                 <View style={styles.scheduleRowInfo}>
                                     <Ionicons name="time-outline" size={16} color="#38BDF8" />
-                                    <Text style={styles.scheduleTimeText}>{item.on} - {item.off}</Text>
+                                    <View>
+                                        <Text style={styles.scheduleTimeText}>{item.on} - {item.off}</Text>
+                                        <Text style={styles.scheduleDaysText}>
+                                            {(item.days || []).map(d => ['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sa', 'Do'][d - 1]).join(' ● ')}
+                                        </Text>
+                                    </View>
                                 </View>
                                 <View style={{ flexDirection: 'row', gap: 12 }}>
                                     <TouchableOpacity onPress={() => startEdit(idx)} style={styles.deleteBtn}>
@@ -175,11 +208,15 @@ const RelayCard = ({ id, title, state, schedules, onToggle, onSaveAllSchedules, 
     );
 }
 
-const SettingsModal = ({ isVisible, onClose, onSave }: { isVisible: boolean, onClose: () => void, onSave: (h: number, m: number, s: number) => Promise<boolean> }) => {
-    const d = new Date();
-    const [h, setH] = useState(d.getHours().toString().padStart(2, '0'));
-    const [m, setM] = useState(d.getMinutes().toString().padStart(2, '0'));
-    const [s, setS] = useState(d.getSeconds().toString().padStart(2, '0'));
+const SettingsModal = ({ isVisible, onClose, onSave, showDebug, onToggleDebug }: { isVisible: boolean, onClose: () => void, onSave: (h: number, m: number, s: number, d: number) => Promise<boolean>, showDebug: boolean, onToggleDebug: (val: boolean) => void }) => {
+    const date = new Date();
+    // JS days: 0=Dom, 1=Lun... -> 1=Lun, 7=Dom
+    const getWd = (d: number) => d === 0 ? 7 : d;
+
+    const [h, setH] = useState(date.getHours().toString().padStart(2, '0'));
+    const [m, setM] = useState(date.getMinutes().toString().padStart(2, '0'));
+    const [s, setS] = useState(date.getSeconds().toString().padStart(2, '0'));
+    const [wd, setWd] = useState(getWd(date.getDay()).toString());
     const [saving, setSaving] = useState(false);
 
     const handleSyncPhone = () => {
@@ -187,11 +224,12 @@ const SettingsModal = ({ isVisible, onClose, onSave }: { isVisible: boolean, onC
         setH(now.getHours().toString().padStart(2, '0'));
         setM(now.getMinutes().toString().padStart(2, '0'));
         setS(now.getSeconds().toString().padStart(2, '0'));
+        setWd(getWd(now.getDay()).toString());
     };
 
     const handleSave = async () => {
         setSaving(true);
-        await onSave(parseInt(h) || 0, parseInt(m) || 0, parseInt(s) || 0);
+        await onSave(parseInt(h) || 0, parseInt(m) || 0, parseInt(s) || 0, parseInt(wd) || 1);
         setSaving(false);
     };
 
@@ -220,6 +258,10 @@ const SettingsModal = ({ isVisible, onClose, onSave }: { isVisible: boolean, onC
                             <Text style={styles.scheduleLabel}>Seg</Text>
                             <TextInput style={styles.timeInput} value={s} onChangeText={setS} keyboardType="numeric" maxLength={2} />
                         </View>
+                        <View style={styles.inputGroup}>
+                            <Text style={styles.scheduleLabel}>Dia (1-7)</Text>
+                            <TextInput style={styles.timeInput} value={wd} onChangeText={setWd} keyboardType="numeric" maxLength={1} />
+                        </View>
                     </View>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 12, marginBottom: 24 }}>
                         <TouchableOpacity onPress={handleSyncPhone} style={styles.cancelBtn}>
@@ -231,7 +273,21 @@ const SettingsModal = ({ isVisible, onClose, onSave }: { isVisible: boolean, onC
                     </View>
 
                     <View style={{ borderTopWidth: 1, borderTopColor: '#27344f', paddingTop: 20 }}>
-                        <Text style={styles.modalSubtitle}>Configurar Wifi</Text>
+                        <Text style={styles.modalSubtitle}>Opciones Extendidas</Text>
+
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                <Ionicons name="terminal" size={20} color="#38BDF8" style={{ marginRight: 12 }} />
+                                <Text style={styles.wifiShortcutText}>Consola de depuración</Text>
+                            </View>
+                            <Switch
+                                value={showDebug}
+                                onValueChange={onToggleDebug}
+                                trackColor={{ false: '#334155', true: '#059669' }}
+                                thumbColor={'#F8FAFC'}
+                            />
+                        </View>
+
                         <TouchableOpacity
                             onPress={() => Linking.sendIntent('android.settings.WIFI_SETTINGS')}
                             style={[styles.wifiShortcutBtn]}
@@ -254,7 +310,15 @@ export default function App() {
     const fadeAnim = useRef(new Animated.Value(0)).current;
     const [refreshing, setRefreshing] = useState(false);
     const [showRtcConfig, setShowRtcConfig] = useState(false);
+    const [showDebug, setShowDebug] = useState(false);
     const [activeCircuits, setActiveCircuits] = useState<string[]>(['r1', 'r2']);
+
+    const [logs, setLogs] = useState<{ id: string, time: string, msg: string, type: 'info' | 'error' | 'success' }[]>([]);
+
+    const addLog = (msg: string, type: 'info' | 'error' | 'success' = 'info') => {
+        const time = new Date().toLocaleTimeString();
+        setLogs(prev => [{ id: Math.random().toString(), time, msg, type }, ...prev].slice(0, 50));
+    };
 
     const handleAddCircuit = () => {
         if (activeCircuits.length < 4) {
@@ -301,10 +365,20 @@ export default function App() {
         });
     };
 
-    const fetchWithTimeout = (url: string, options: RequestInit = {}, timeoutMs = 6000): Promise<Response> => {
+    const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeoutMs = 6000): Promise<Response> => {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), timeoutMs);
-        return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timer));
+        if (options.method && options.method !== 'GET') {
+            addLog(`>> ${options.method} ${url} ${options.body ? String(options.body) : ''}`, 'info');
+        }
+        try {
+            const res = await fetch(url, { ...options, signal: controller.signal });
+            clearTimeout(timer);
+            return res;
+        } catch (err: any) {
+            clearTimeout(timer);
+            throw err;
+        }
     };
 
     const fetchData = async () => {
@@ -316,17 +390,20 @@ export default function App() {
             setError(null);
         } catch (err: any) {
             setError(err?.name === 'AbortError' ? 'Timeout en conexión.' : 'Error de red.');
-            setData({
-                hora: '14:00:00',
-                manual: false,
-                prog: [
-                    { id: 'r1', on: '06:00', off: '06:10' },
-                    { id: 'r2', on: '18:00', off: '18:10' },
-                    { id: 'r3', on: '12:00', off: '12:10' },
-                    { id: 'r4', on: '20:00', off: '20:10' }
-                ],
-                v1: 0, v2: 0, v3: 0, v4: 0
-            });
+            // Only update data with a fallback if we don't have any existing state to prevent visual resets
+            if (!data) {
+                setData({
+                    hora: '14:00:00',
+                    manual: false,
+                    prog: [
+                        { id: 'r1', on: '06:00', off: '06:10', days: [1, 2, 3, 4, 5, 6, 7] },
+                        { id: 'r2', on: '18:00', off: '18:10', days: [1, 2, 3, 4, 5, 6, 7] },
+                        { id: 'r3', on: '12:00', off: '12:10', days: [] },
+                        { id: 'r4', on: '20:00', off: '20:10', days: [] }
+                    ],
+                    v1: 0, v2: 0, v3: 0, v4: 0
+                });
+            }
         }
     };
 
@@ -346,6 +423,7 @@ export default function App() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ id, val: newVal })
             });
+            await fetchData();
         } catch (err) {
             if (data) setData({ ...data, [vKey]: currentState });
         }
@@ -373,17 +451,24 @@ export default function App() {
         }
     };
 
-    const handleSetRtc = async (h: number, m: number, s: number) => {
+    const handleSetRtc = async (h: number, m: number, s: number, d: number) => {
         try {
-            await fetchWithTimeout('http://192.168.4.1/setrtc', {
+            const bodyStr = JSON.stringify({ h, m, s, d });
+            const response = await fetchWithTimeout('http://192.168.4.1/setrtc', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ h, m, s })
+                body: bodyStr
             });
+            const textResponse = await response.text();
+            addLog(`<< HTTP ${response.status} | ${textResponse}`, response.ok ? 'success' : 'error');
+
+            if (!response.ok) throw new Error(`HTTP ${response.status}: ${textResponse}`);
+
             triggerSuccessToast('Reloj sincronizado');
             await fetchData();
             setShowRtcConfig(false);
             return true;
         } catch (err: any) {
+            addLog(`!! ERROR RTC: ${err.message}`, 'error');
             setError('Error RTC');
             return false;
         }
@@ -391,7 +476,7 @@ export default function App() {
 
     useEffect(() => {
         fetchData();
-        const interval = setInterval(fetchData, 1000);
+        const interval = setInterval(fetchData, 5000);
         return () => clearInterval(interval);
     }, []);
 
@@ -421,7 +506,7 @@ export default function App() {
                             </View>
                             <View style={styles.rtcContainer}>
                                 <Text style={styles.rtcLabel}>HORA LOCAL</Text>
-                                <Text style={styles.rtcValue}>{data?.hora || '--:--:--'}</Text>
+                                <Text style={styles.rtcValue}>{data?.hora ? data.hora.substring(0, 5) : '--:--'}</Text>
                                 {data?.manual && <Text style={styles.activeLabel}>SISTEMA ACTIVO</Text>}
                             </View>
                         </View>
@@ -431,40 +516,63 @@ export default function App() {
 
 
 
-                        <View style={styles.content}>
-                            <SettingsModal
-                                isVisible={showRtcConfig}
-                                onClose={() => setShowRtcConfig(false)}
-                                onSave={handleSetRtc}
-                            />
-                            {data ? (
-                                <>
-                                    {activeCircuits.map((cid) => {
-                                        const vNum = cid.charAt(1);
-                                        const vKey = `v${vNum}`;
-                                        return (
-                                            <RelayCard
-                                                key={cid}
-                                                id={cid}
-                                                title={`Circuito ${vNum} (${cid.toUpperCase()})`}
-                                                state={data[vKey] || 0}
-                                                schedules={(data.prog || []).filter(s => s.id === cid)}
-                                                onToggle={handleToggle}
-                                                onSaveAllSchedules={handleSaveAllSchedules}
-                                                onRemove={handleRemoveCircuit}
-                                            />
-                                        );
-                                    })}
-                                    {activeCircuits.length < 4 && (
-                                        <TouchableOpacity onPress={handleAddCircuit} style={styles.addCircuitBtn}>
-                                            <Ionicons name="add-circle-outline" size={24} color="#38BDF8" />
-                                            <Text style={styles.addCircuitBtnText}>Añadir nuevo circuito</Text>
-                                        </TouchableOpacity>
+                    <View style={styles.content}>
+                        <SettingsModal
+                            isVisible={showRtcConfig}
+                            onClose={() => setShowRtcConfig(false)}
+                            onSave={handleSetRtc}
+                            showDebug={showDebug}
+                            onToggleDebug={setShowDebug}
+                        />
+                        {data ? (
+                            <>
+                                {activeCircuits.map((cid) => {
+                                    const vNum = cid.charAt(1);
+                                    const vKey = `v${vNum}`;
+                                    return (
+                                        <RelayCard
+                                            key={cid}
+                                            id={cid}
+                                            title={`Circuito ${vNum} (${cid.toUpperCase()})`}
+                                            state={data[vKey] || 0}
+                                            schedules={(data.prog || []).filter(s => s.id === cid)}
+                                            onToggle={handleToggle}
+                                            onSaveAllSchedules={handleSaveAllSchedules}
+                                            onRemove={handleRemoveCircuit}
+                                        />
+                                    );
+                                })}
+                                {activeCircuits.length < 4 && (
+                                    <TouchableOpacity onPress={handleAddCircuit} style={styles.addCircuitBtn}>
+                                        <Ionicons name="add-circle-outline" size={24} color="#38BDF8" />
+                                        <Text style={styles.addCircuitBtnText}>Añadir nuevo circuito</Text>
+                                    </TouchableOpacity>
+                                )}
+                            </>
+                        ) : (
+                            <Text style={styles.loadingText}>Cargando estado...</Text>
+                        )}
+
+                        {showDebug && (
+                            <View style={styles.consoleContainer}>
+                                <Text style={styles.consoleTitle}>Consola de Depuración</Text>
+                                <ScrollView style={styles.consoleScroll} nestedScrollEnabled>
+                                    {logs.length === 0 ? (
+                                        <Text style={styles.consoleText}>Esperando peticiones...</Text>
+                                    ) : (
+                                        logs.map(log => (
+                                            <Text key={log.id} style={[
+                                                styles.consoleText,
+                                                log.type === 'error' && { color: '#FCA5A5' },
+                                                log.type === 'success' && { color: '#6EE7B7' }
+                                            ]}>
+                                                [{log.time}] {log.msg}
+                                            </Text>
+                                        ))
                                     )}
-                                </>
-                            ) : (
-                                <Text style={styles.loadingText}>Cargando estado...</Text>
-                            )}
+                                </ScrollView>
+                            </View>
+                        )}
 
                         <View style={styles.footer}>
                             <Text style={styles.versionText}>Smart Irrigation System</Text>
@@ -521,8 +629,8 @@ const styles = StyleSheet.create({
         borderRadius: 12,
         borderWidth: 1,
         borderColor: '#7f1d1d',
-        zIndex: 5000,
-        elevation: 10,
+        zIndex: 99999,
+        elevation: 9999,
     },
     errorText: { color: '#FCA5A5', marginLeft: 12, flex: 1, fontSize: 13 },
     successBox: {
@@ -537,8 +645,8 @@ const styles = StyleSheet.create({
         borderRadius: 12,
         borderWidth: 1,
         borderColor: '#064e3b',
-        zIndex: 5000,
-        elevation: 10,
+        zIndex: 99999,
+        elevation: 9999,
     },
     successText: { color: '#6EE7B7', marginLeft: 12, flex: 1, fontSize: 13 },
     content: { padding: 24 },
@@ -599,6 +707,12 @@ const styles = StyleSheet.create({
         fontSize: 10,
         marginTop: 4,
     },
+    daySelectionRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 16, paddingHorizontal: 4 },
+    dayCircle: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#17213b', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#27344f' },
+    dayCircleActive: { backgroundColor: '#38BDF8', borderColor: '#38BDF8' },
+    dayCircleText: { color: '#94A3B8', fontSize: 12, fontWeight: '700' },
+    dayCircleTextActive: { color: '#0b122b' },
+    scheduleDaysText: { color: '#64748B', fontSize: 11, fontWeight: '600', marginTop: 2 },
     modalOverlay: {
         flex: 1,
         backgroundColor: 'rgba(11, 18, 43, 0.85)',
@@ -666,5 +780,33 @@ const styles = StyleSheet.create({
         fontSize: 15,
         fontWeight: 'bold',
         marginLeft: 10,
+    },
+    consoleContainer: {
+        marginTop: 20,
+        backgroundColor: '#000',
+        borderRadius: 12,
+        padding: 12,
+        height: 180,
+        borderWidth: 1,
+        borderColor: '#334155',
+    },
+    consoleTitle: {
+        color: '#94A3B8',
+        fontSize: 12,
+        fontWeight: 'bold',
+        marginBottom: 8,
+        borderBottomWidth: 1,
+        borderBottomColor: '#334155',
+        paddingBottom: 4,
+        textTransform: 'uppercase',
+    },
+    consoleScroll: {
+        flex: 1,
+    },
+    consoleText: {
+        color: '#E2E8F0',
+        fontSize: 11,
+        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+        marginBottom: 4,
     },
 });
