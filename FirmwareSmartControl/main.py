@@ -42,7 +42,9 @@ FILE_NAME = "riego_config.json"
 # Ahora horarios es una LISTA de dicts: [{"id": "r1", "on": "HH:MM", "off": "HH:MM"}, ...]
 horarios = [
     {"id": "r1", "on": "06:00", "off": "06:10"},
-    {"id": "r2", "on": "18:00", "off": "18:10"}
+    {"id": "r2", "on": "18:00", "off": "18:10"},
+    {"id": "r3", "on": "18:00", "off": "18:10"},
+    {"id": "r4", "on": "18:00", "off": "18:10"}
 ]
 
 
